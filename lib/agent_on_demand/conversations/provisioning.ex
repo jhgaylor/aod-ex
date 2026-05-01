@@ -297,15 +297,22 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end
   end
 
-  defp clone_one(sprite, %{"url" => url, "mount_path" => mount} = repo, secrets, conv_id) do
-    auth_url = inject_token(url, repo["secret_key"], secrets)
-    ref = repo["ref"]
+  defp clone_one(sprite, %{"url" => url} = repo, secrets, conv_id) do
+    cond do
+      ssh_url?(url) -> clone_ssh(sprite, repo, secrets, conv_id)
+      String.starts_with?(url, "https://") -> clone_https(sprite, repo, secrets, conv_id)
+      true -> {:error, {:clone_unsupported_url, url}}
+    end
+  end
 
-    branch_arg = if is_binary(ref) and ref != "", do: "-b #{shell_quote(ref)} ", else: ""
+  defp clone_one(_, repo, _, _), do: {:error, {:clone_invalid_spec, repo}}
+
+  defp clone_https(sprite, %{"url" => url, "mount_path" => mount} = repo, secrets, conv_id) do
+    auth_url = inject_token(url, repo["secret_key"], secrets)
 
     cmd =
       "mkdir -p #{shell_quote(Path.dirname(mount))} && " <>
-        "git clone --depth 50 #{branch_arg}#{shell_quote(auth_url)} #{shell_quote(mount)}"
+        "git clone --depth 50 #{branch_arg(repo)}#{shell_quote(auth_url)} #{shell_quote(mount)}"
 
     {output, code} =
       Sprites.cmd(sprite, "bash", ["-lc", cmd],
@@ -315,12 +322,73 @@ defmodule AgentOnDemand.Conversations.Provisioning do
 
     log_output(conv_id, scrub_token(output))
 
-    if code == 0,
-      do: :ok,
-      else: {:error, {:clone, url, code}}
+    if code == 0, do: :ok, else: {:error, {:clone, url, code}}
   end
 
-  defp clone_one(_, repo, _, _), do: {:error, {:clone_invalid_spec, repo}}
+  # SSH clone via key-from-secret. The private key is written to a
+  # short-lived path inside the sprite, GIT_SSH_COMMAND uses it for this
+  # clone, and the file is removed on exit. StrictHostKeyChecking=no
+  # because we don't have known_hosts management; this is the
+  # convenience tradeoff for SSH on a sprite.
+  defp clone_ssh(sprite, %{"url" => url, "mount_path" => mount} = repo, secrets, conv_id) do
+    case fetch_secret(repo["ssh_key_secret"], secrets) do
+      {:ok, key} ->
+        key_path = "/tmp/aod_ssh_#{:erlang.unique_integer([:positive])}"
+
+        cmd =
+          ~s|set -e; |
+          |> Kernel.<>(~s|umask 077; |)
+          |> Kernel.<>(~s|cat > #{shell_quote(key_path)} << 'AOD_KEY_EOF'\n#{key}\nAOD_KEY_EOF\n|)
+          |> Kernel.<>(~s|chmod 600 #{shell_quote(key_path)}; |)
+          |> Kernel.<>(~s|mkdir -p #{shell_quote(Path.dirname(mount))}; |)
+          |> Kernel.<>(
+            ~s|GIT_SSH_COMMAND='ssh -i #{key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' |
+          )
+          |> Kernel.<>(
+            ~s|git clone --depth 50 #{branch_arg(repo)}#{shell_quote(url)} #{shell_quote(mount)}; |
+          )
+          |> Kernel.<>(~s|rc=$?; rm -f #{shell_quote(key_path)}; exit $rc|)
+
+        {output, code} =
+          Sprites.cmd(sprite, "bash", ["-lc", cmd],
+            stderr_to_stdout: true,
+            timeout: 600_000
+          )
+
+        log_output(conv_id, output)
+
+        if code == 0, do: :ok, else: {:error, {:clone, url, code}}
+
+      {:error, reason} ->
+        {:error, {:clone_ssh_secret, reason}}
+    end
+  end
+
+  @doc false
+  def ssh_url?(url) when is_binary(url) do
+    String.starts_with?(url, "ssh://") or
+      Regex.match?(~r/^[^@\s]+@[^:\s]+:/, url)
+  end
+
+  def ssh_url?(_), do: false
+
+  defp branch_arg(repo) do
+    case repo["ref"] do
+      ref when is_binary(ref) and ref != "" -> "-b #{shell_quote(ref)} "
+      _ -> ""
+    end
+  end
+
+  defp fetch_secret(nil, _), do: {:error, :no_secret_key}
+  defp fetch_secret("", _), do: {:error, :no_secret_key}
+
+  defp fetch_secret(key, secrets) when is_map(secrets) do
+    case Map.get(secrets, key) do
+      nil -> {:error, {:missing_secret, key}}
+      "" -> {:error, {:empty_secret, key}}
+      v -> {:ok, v}
+    end
+  end
 
   @doc false
   def inject_token(url, nil, _), do: url

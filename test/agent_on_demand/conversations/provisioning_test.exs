@@ -156,6 +156,26 @@ defmodule AgentOnDemand.Conversations.ProvisioningTest do
     end
   end
 
+  describe "ssh_url?/1" do
+    test "matches ssh:// URLs" do
+      assert Provisioning.ssh_url?("ssh://git@github.com/owner/repo.git")
+    end
+
+    test "matches user@host:path form" do
+      assert Provisioning.ssh_url?("git@github.com:owner/repo.git")
+    end
+
+    test "rejects https URLs" do
+      refute Provisioning.ssh_url?("https://github.com/owner/repo")
+    end
+
+    test "rejects malformed inputs" do
+      refute Provisioning.ssh_url?("not a url")
+      refute Provisioning.ssh_url?(nil)
+      refute Provisioning.ssh_url?("")
+    end
+  end
+
   describe "checkpoint create / restore" do
     use Mimic
 
