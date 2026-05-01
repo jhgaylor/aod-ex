@@ -51,4 +51,41 @@ defmodule AgentOnDemand.Runtimes.Codex do
       key -> [{"OPENAI_API_KEY", key}]
     end
   end
+
+  # codex 0.118+ does NOT read OPENAI_API_KEY at exec time — it only reads
+  # `~/.codex/auth.json`, which `codex login --with-api-key` writes by
+  # consuming the key on stdin. Run the login once at provision time.
+  @impl true
+  def prepare_sprite(sprite, _agent, sprite_env) do
+    case List.keyfind(sprite_env, "OPENAI_API_KEY", 0) do
+      {"OPENAI_API_KEY", key} when is_binary(key) and key != "" ->
+        case Sprites.spawn(sprite, "codex", ["login", "--with-api-key"],
+               owner: self(),
+               stdin: true,
+               env: sprite_env
+             ) do
+          {:ok, command} ->
+            :ok = Sprites.write(command, key <> "\n")
+            :ok = Sprites.close_stdin(command)
+
+            receive do
+              {:exit, %{ref: ref}, 0} when ref == command.ref ->
+                :ok
+
+              {:exit, %{ref: ref}, code} when ref == command.ref ->
+                {:error, {:codex_login_exit, code}}
+            after
+              30_000 -> {:error, :codex_login_timeout}
+            end
+
+          err ->
+            {:error, {:codex_login_spawn, err}}
+        end
+
+      _ ->
+        # No key in env — surface that explicitly; without it the
+        # subsequent `codex exec` will 401 with a confusing message.
+        {:error, :missing_openai_api_key}
+    end
+  end
 end

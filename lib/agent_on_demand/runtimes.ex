@@ -34,7 +34,22 @@ defmodule AgentOnDemand.Runtimes do
   """
   @callback write_config(sprite :: any(), agent :: %Agent{} | nil) :: :ok
 
-  @optional_callbacks default_env: 1, write_config: 2
+  @doc """
+  Optionally run any sprite-side bootstrap that has to happen *before*
+  the first turn — e.g. codex needs `codex login --with-api-key` to
+  persist credentials into `~/.codex/auth.json` since it doesn't read
+  `OPENAI_API_KEY` from the live process env.
+
+  Receives the same `sprite_env` pairs the spawn will use. Implementers
+  pull whichever keys they need out of that list. No-op by default.
+  """
+  @callback prepare_sprite(
+              sprite :: any(),
+              agent :: %Agent{} | nil,
+              sprite_env :: [{String.t(), String.t()}]
+            ) :: :ok | {:error, term()}
+
+  @optional_callbacks default_env: 1, write_config: 2, prepare_sprite: 3
 
   @runtime_modules %{
     "claude" => AgentOnDemand.Runtimes.Claude,

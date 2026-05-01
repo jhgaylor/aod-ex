@@ -167,7 +167,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
 
         with :ok <-
-               run_provisioning_pipeline(sprite, env, sprite_env, secrets, state.conversation_id) do
+               run_provisioning_pipeline(sprite, env, sprite_env, secrets, state.conversation_id),
+             :ok <- prepare_runtime_sprite(sprite, state.runtime_module, agent, sprite_env) do
           {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
           publish_stage(state.conversation_id, "provision", "done")
 
@@ -504,8 +505,20 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp write_runtime_config(sprite, runtime_module, agent) do
+    Code.ensure_loaded(runtime_module)
+
     if function_exported?(runtime_module, :write_config, 2) do
       runtime_module.write_config(sprite, agent)
+    end
+  end
+
+  defp prepare_runtime_sprite(sprite, runtime_module, agent, sprite_env) do
+    Code.ensure_loaded(runtime_module)
+
+    if function_exported?(runtime_module, :prepare_sprite, 3) do
+      runtime_module.prepare_sprite(sprite, agent, sprite_env)
+    else
+      :ok
     end
   end
 

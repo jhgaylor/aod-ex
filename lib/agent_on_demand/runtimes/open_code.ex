@@ -20,15 +20,36 @@ defmodule AgentOnDemand.Runtimes.OpenCode do
 
   @behaviour AgentOnDemand.Runtimes
 
+  # opencode insists on being inside a git repo. Putting the workspace
+  # in /tmp side-steps the sprite user's lack of write access on
+  # /home/sprite (which prevents `git init` from stat'ing the work tree).
+  @workdir "/tmp/opencode-workspace"
+
   @impl true
   def build_command(agent, _prompt, mode, _runtime_session_id, _opts) do
-    base = ["run", "--model", agent.model, "--format", "json"]
+    base = [
+      "run",
+      "--model",
+      agent.model,
+      "--format",
+      "json",
+      "--dangerously-skip-permissions",
+      "--dir",
+      @workdir
+    ]
+
     args = if mode == :continue, do: base ++ ["--continue"], else: base
     {"opencode", args, []}
   end
 
   @impl true
-  def default_env(%{model: model}) when is_binary(model) do
+  def default_env(%{model: model} = agent) when is_binary(model) do
+    provider_env(agent) ++ [{"HOME", "/tmp"}]
+  end
+
+  def default_env(_), do: [{"HOME", "/tmp"}]
+
+  defp provider_env(%{model: model}) do
     case provider_of(model) do
       "anthropic" -> env_pair("ANTHROPIC_API_KEY", :anthropic_api_key)
       "openai" -> env_pair("OPENAI_API_KEY", :openai_api_key)
@@ -37,7 +58,46 @@ defmodule AgentOnDemand.Runtimes.OpenCode do
     end
   end
 
-  def default_env(_), do: []
+  # opencode isn't on the default sprite image. Install it via bun and
+  # symlink into ~/.local/bin (which the sprite's default PATH includes;
+  # bun's own global bin at /.sprite/languages/bun/bin is not on PATH).
+  # Idempotent — `command -v` short-circuits on subsequent calls.
+  @impl true
+  def prepare_sprite(sprite, _agent, sprite_env) do
+    install_script = """
+    set -e
+
+    # Install opencode + symlink onto PATH if missing.  We hardcode the
+    # absolute path because the runtime overrides HOME=/tmp at spawn time
+    # (see comment below), so `~/.local/bin` can resolve to /tmp/.local
+    # depending on when the script runs.
+    if ! command -v opencode >/dev/null; then
+      bun install -g opencode-ai
+      mkdir -p /home/sprite/.local/bin
+      ln -sf "$(bun pm bin -g)/opencode" /home/sprite/.local/bin/opencode
+    fi
+
+    # opencode insists on running inside a git repo, and the sprite user
+    # can't `git init` directly in $HOME (work-tree perms). Use /tmp;
+    # mirrors @workdir in build_command so `opencode run --dir ...`
+    # finds it.
+    if [ ! -d #{@workdir}/.git ]; then
+      mkdir -p #{@workdir}
+      cd #{@workdir}
+      git init -q
+      git config user.email aod@local
+      git config user.name AoD
+    fi
+    """
+
+    {_out, code} =
+      Sprites.cmd(sprite, "bash", ["-lc", install_script],
+        env: sprite_env,
+        timeout: 120_000
+      )
+
+    if code == 0, do: :ok, else: {:error, {:opencode_install_exit, code}}
+  end
 
   defp provider_of(model) do
     case String.split(model, "/", parts: 2) do
