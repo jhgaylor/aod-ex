@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-zinc-50">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <title>{assigns[:page_title] || "Agent on Demand"}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      window.addEventListener("phx:reload", () => location.reload());
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/phoenix@1.7.20/priv/static/phoenix.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/phoenix_live_view@1.1.28/priv/static/phoenix_live_view.min.js"></script>
+    <script defer>
+      document.addEventListener("DOMContentLoaded", () => {
+        const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+        const Hooks = {
+          ScrollBottom: {
+            mounted() { this.el.scrollTop = this.el.scrollHeight; },
+            updated() { this.el.scrollTop = this.el.scrollHeight; }
+          }
+        };
+        const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
+          params: { _csrf_token: csrfToken },
+          hooks: Hooks
+        });
+        liveSocket.connect();
+        window.liveSocket = liveSocket;
+      });
+    </script>
+  </head>
+  <body class="bg-zinc-50 text-zinc-900 font-sans antialiased">
+    {@inner_content}
+  </body>
+</html>

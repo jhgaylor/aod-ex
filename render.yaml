@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: agent-on-demand
+    runtime: elixir
+    plan: starter
+    region: oregon
+    buildCommand: |
+      mix local.hex --force
+      mix local.rebar --force
+      mix deps.get --only prod
+      MIX_ENV=prod mix compile
+      MIX_ENV=prod mix release
+    startCommand: _build/prod/rel/agent_on_demand/bin/server
+    preDeployCommand: _build/prod/rel/agent_on_demand/bin/migrate
+    healthCheckPath: /health
+
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+
+    envVars:
+      - key: PHX_SERVER
+        value: "true"
+      - key: PHX_HOST
+        value: agent-on-demand.onrender.com
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_PATH
+        value: /data/agent_on_demand.db
+
+      # Auto-generated secrets
+      - key: SECRET_KEY_BASE
+        generateValue: true
+
+      # Set these via the dashboard (sync: false hides them from yaml)
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: SECRETS_KEY
+        sync: false
+      - key: SPRITES_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AOD_PUBLIC_URL
+        value: https://agent-on-demand.onrender.com
+
+      - key: ELIXIR_VERSION
+        value: "1.18.4"
+      - key: ERLANG_VERSION
+        value: "27.0"
