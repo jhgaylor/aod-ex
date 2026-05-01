@@ -10,6 +10,7 @@ defmodule AgentOnDemandWeb.Router do
     plug :accepts, ["json"]
     plug OpenApiSpex.Plug.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
     plug AgentOnDemandWeb.Plugs.AdminAuth
+    plug AgentOnDemandWeb.Plugs.RateLimit, bucket: "api", max: 600
     plug AgentOnDemandWeb.Plugs.Audit
   end
 
