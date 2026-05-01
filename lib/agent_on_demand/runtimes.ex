@@ -37,7 +37,10 @@ defmodule AgentOnDemand.Runtimes do
   @optional_callbacks default_env: 1, write_config: 2
 
   @runtime_modules %{
-    "claude" => AgentOnDemand.Runtimes.Claude
+    "claude" => AgentOnDemand.Runtimes.Claude,
+    "codex" => AgentOnDemand.Runtimes.Codex,
+    "gemini" => AgentOnDemand.Runtimes.Gemini,
+    "opencode" => AgentOnDemand.Runtimes.OpenCode
   }
 
   @doc "Look up the runtime module for an agent's runtime string."
