@@ -210,7 +210,7 @@ defmodule AgentOnDemand.Conversations do
              status: "pending"
            }) do
       {:ok, _pid} =
-        DynamicSupervisor.start_child(
+        Horde.DynamicSupervisor.start_child(
           AgentOnDemand.ConversationSupervisor,
           {ConversationServer,
            [
@@ -288,7 +288,7 @@ defmodule AgentOnDemand.Conversations do
 
   defp start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
     with {:ok, _pid} <-
-           DynamicSupervisor.start_child(
+           Horde.DynamicSupervisor.start_child(
              AgentOnDemand.ConversationSupervisor,
              {ConversationServer,
               [

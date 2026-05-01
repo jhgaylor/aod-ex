@@ -166,7 +166,7 @@ defmodule AgentOnDemand.ConversationsTest do
     # *call* is enough; the ConversationServer's own behavior is tested
     # in conversation_server_test.exs.
     defp stub_dyn_supervisor do
-      stub(DynamicSupervisor, :start_child, fn AgentOnDemand.ConversationSupervisor, _spec ->
+      stub(Horde.DynamicSupervisor, :start_child, fn AgentOnDemand.ConversationSupervisor, _spec ->
         {:ok, self()}
       end)
     end

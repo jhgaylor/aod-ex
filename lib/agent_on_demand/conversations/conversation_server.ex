@@ -21,10 +21,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     GenServer.start_link(__MODULE__, args, name: via(conv_id))
   end
 
-  def via(conv_id), do: {:via, Registry, {AgentOnDemand.ConversationRegistry, conv_id}}
+  def via(conv_id), do: {:via, Horde.Registry, {AgentOnDemand.ConversationRegistry, conv_id}}
 
   def whereis(conv_id) do
-    case Registry.lookup(AgentOnDemand.ConversationRegistry, conv_id) do
+    case Horde.Registry.lookup(AgentOnDemand.ConversationRegistry, conv_id) do
       [{pid, _}] -> pid
       [] -> nil
     end

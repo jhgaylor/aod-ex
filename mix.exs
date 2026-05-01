@@ -58,6 +58,8 @@ defmodule AgentOnDemand.MixProject do
       {:sprites, path: "../sprites-ex"},
       {:yaml_elixir, "~> 2.11"},
       {:open_api_spex, "~> 3.21"},
+      {:libcluster, "~> 3.4"},
+      {:horde, "~> 0.9.0"},
       {:mimic, "~> 1.7", only: :test},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]

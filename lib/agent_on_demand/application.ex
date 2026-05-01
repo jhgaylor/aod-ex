@@ -10,17 +10,34 @@ defmodule AgentOnDemand.Application do
     AgentOnDemandWeb.Plugs.RateLimit.ensure_table()
     AgentOnDemand.Telemetry.attach_default_logger()
 
-    children = [
-      AgentOnDemandWeb.Telemetry,
-      AgentOnDemand.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:agent_on_demand, :ecto_repos), skip: skip_migrations?()},
-      {DNSCluster, query: Application.get_env(:agent_on_demand, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: AgentOnDemand.PubSub},
-      {Registry, keys: :unique, name: AgentOnDemand.ConversationRegistry},
-      {DynamicSupervisor, name: AgentOnDemand.ConversationSupervisor, strategy: :one_for_one},
-      AgentOnDemandWeb.Endpoint
-    ]
+    cluster_topologies = Application.get_env(:libcluster, :topologies, [])
+
+    children =
+      [
+        AgentOnDemandWeb.Telemetry,
+        AgentOnDemand.Repo,
+        {Ecto.Migrator,
+         repos: Application.fetch_env!(:agent_on_demand, :ecto_repos), skip: skip_migrations?()},
+        {DNSCluster, query: Application.get_env(:agent_on_demand, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: AgentOnDemand.PubSub}
+      ] ++
+        cluster_children(cluster_topologies) ++
+        [
+          # Horde.Registry + Horde.DynamicSupervisor are CRDT-backed
+          # cluster-aware replacements. Single-node behavior is
+          # unchanged; on multiple nodes they sync state and let
+          # processes be addressed across the cluster.
+          {Horde.Registry,
+           [name: AgentOnDemand.ConversationRegistry, keys: :unique, members: :auto]},
+          {Horde.DynamicSupervisor,
+           [
+             name: AgentOnDemand.ConversationSupervisor,
+             strategy: :one_for_one,
+             distribution_strategy: Horde.UniformDistribution,
+             members: :auto
+           ]},
+          AgentOnDemandWeb.Endpoint
+        ]
 
     opts = [strategy: :one_for_one, name: AgentOnDemand.Supervisor]
 
@@ -37,6 +54,12 @@ defmodule AgentOnDemand.Application do
       err ->
         err
     end
+  end
+
+  defp cluster_children([]), do: []
+
+  defp cluster_children(topologies) do
+    [{Cluster.Supervisor, [topologies, [name: AgentOnDemand.ClusterSupervisor]]}]
   end
 
   # Tell Phoenix to update the endpoint configuration

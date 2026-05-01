@@ -87,6 +87,36 @@ config :agent_on_demand, :secrets_key, secrets_key
 
 config :agent_on_demand, :sprites_token, System.get_env("SPRITES_TOKEN")
 config :agent_on_demand, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")
+
+# Multi-node clustering. Default: no clustering (empty topology — single
+# node). To enable on Render set CLUSTER_DNS_QUERY to the internal DNS
+# name of the service (e.g. `agent-on-demand` for `agent-on-demand.flycast`
+# or whatever the platform exposes); libcluster's DNSPoll strategy will
+# discover peer nodes by polling the DNS record. Erlang Distribution
+# also requires RELEASE_COOKIE and matching node names — Render's elixir
+# runtime sets these for you when the release boots.
+cluster_topologies =
+  case System.get_env("CLUSTER_DNS_QUERY") do
+    nil ->
+      []
+
+    "" ->
+      []
+
+    query ->
+      [
+        aod: [
+          strategy: Cluster.Strategy.DNSPoll,
+          config: [
+            polling_interval: 5_000,
+            query: query,
+            node_basename: System.get_env("RELEASE_NAME", "agent_on_demand")
+          ]
+        ]
+      ]
+  end
+
+config :libcluster, topologies: cluster_topologies
 config :agent_on_demand, :claude_code_oauth_token, System.get_env("CLAUDE_CODE_OAUTH_TOKEN")
 config :agent_on_demand, :openai_api_key, System.get_env("OPENAI_API_KEY")
 config :agent_on_demand, :gemini_api_key, System.get_env("GEMINI_API_KEY")

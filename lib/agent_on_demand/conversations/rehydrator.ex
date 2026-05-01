@@ -37,7 +37,7 @@ defmodule AgentOnDemand.Conversations.Rehydrator do
     with %Agents.Agent{} = _agent <-
            (conv.agent_id && Agents.get_agent(conv.agent_id)) || {:skip, :no_agent},
          {:ok, runtime_module} <- Runtimes.for_runtime(conv.runtime) do
-      DynamicSupervisor.start_child(
+      Horde.DynamicSupervisor.start_child(
         AgentOnDemand.ConversationSupervisor,
         {ConversationServer,
          [
