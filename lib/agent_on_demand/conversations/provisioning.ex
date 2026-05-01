@@ -21,6 +21,52 @@ defmodule AgentOnDemand.Conversations.Provisioning do
 
   require Logger
 
+  @env_file "/home/sprite/.env"
+
+  @doc """
+  Write the merged sprite env (default + callback + env_vars + secrets)
+  to `/home/sprite/.env` so a `setup_script` that does `source .env`
+  picks up the variables. Mirrors the legacy AoD's `env_file.py`.
+
+  The file is `chmod 600` after the write so other sprite users (if any)
+  can't read tokens.
+  """
+  def write_env_file(_sprite, sprite_env) when sprite_env in [nil, []], do: :ok
+
+  def write_env_file(sprite, sprite_env) do
+    body = render_env_file(sprite_env)
+    fs = Sprites.filesystem(sprite, "/")
+
+    case Sprites.Filesystem.write(fs, @env_file, body) do
+      :ok ->
+        # Ignore chmod errors — we still wrote the file. Defense in depth,
+        # not a hard requirement.
+        Sprites.cmd(sprite, "chmod", ["600", @env_file], timeout: 5_000)
+        :ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc false
+  def render_env_file(sprite_env) do
+    sprite_env
+    |> Enum.map(fn {k, v} -> "#{k}=#{shell_escape_value(to_string(v))}" end)
+    |> Enum.join("\n")
+    |> Kernel.<>("\n")
+  end
+
+  defp shell_escape_value(v) do
+    # Quote values containing whitespace, quotes, or shell metacharacters.
+    # Escape inner double quotes.
+    if String.match?(v, ~r/[\s"'\\$`]/) do
+      ~s|"| <> String.replace(v, ~s|"|, ~s|\\"|) <> ~s|"|
+    else
+      v
+    end
+  end
+
   # ── packages ──────────────────────────────────────────────────────────────
 
   @doc """

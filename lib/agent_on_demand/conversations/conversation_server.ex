@@ -149,6 +149,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
 
         write_runtime_config(sprite, state.runtime_module, agent)
+        AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
 
         with :ok <-
                AgentOnDemand.Conversations.Provisioning.apply_network_policy(
@@ -214,6 +215,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       {:ok, _info} ->
         sprite = Sprites.sprite(client, sandbox.sprite_name)
         sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
+
+        # Refresh the .env file in case secrets/env_vars were edited
+        # between the original provision and this reattach.
+        AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
 
         new_state = %{state | sprite: sprite, sprite_env: sprite_env}
         new_state = reattach_running_turn(new_state)
