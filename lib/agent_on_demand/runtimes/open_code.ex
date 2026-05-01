@@ -88,6 +88,14 @@ defmodule AgentOnDemand.Runtimes.OpenCode do
       git config user.email aod@local
       git config user.name AoD
     fi
+
+    # Pre-warm the sqlite migration. opencode prints
+    # "Performing one time database migration..." on the first
+    # subcommand that touches its storage layer; doing it during
+    # provision keeps the conversation log clean.
+    if [ ! -f /tmp/.local/share/opencode/opencode.db ]; then
+      opencode auth list >/dev/null 2>&1 || true
+    fi
     """
 
     {_out, code} =
