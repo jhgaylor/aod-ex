@@ -45,11 +45,7 @@ defmodule AgentOnDemandWeb.AgentControllerTest do
       assert response["errors"]
     end
 
-    @tag :skip
     test "PUT updates fields", %{conn: conn} do
-      # OpenAPI's AgentRequest schema requires the full creation shape on
-      # PUT today, blocking partial updates. Tracking under task #45 to
-      # split into AgentUpdate (all-optional) — until then this is :skip.
       a = insert_agent(%{"name" => "before-#{System.unique_integer([:positive])}"})
 
       assert %{"data" => updated} =

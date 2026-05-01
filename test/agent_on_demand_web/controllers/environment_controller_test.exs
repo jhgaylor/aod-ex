@@ -63,10 +63,7 @@ defmodule AgentOnDemandWeb.EnvironmentControllerTest do
   end
 
   describe "PUT + DELETE /api/environments/:id" do
-    @tag :skip
     test "updates", %{conn: conn} do
-      # See AgentControllerTest's PUT test for the OpenAPI-strictness
-      # rationale; tracking under task #45.
       env = insert_env(%{"name" => "to-update-#{System.unique_integer([:positive])}"})
 
       assert %{"data" => updated} =

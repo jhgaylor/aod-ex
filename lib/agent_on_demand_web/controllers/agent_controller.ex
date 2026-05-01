@@ -57,9 +57,10 @@ defmodule AgentOnDemandWeb.AgentController do
   end
 
   operation(:update,
-    summary: "Update an agent",
+    summary: "Update an agent (partial)",
+    description: "Every field is optional; the server merges into the existing record.",
     parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Agent attributes", "application/json", Schemas.AgentRequest},
+    request_body: {"Partial agent attributes", "application/json", Schemas.AgentUpdate},
     responses: [
       ok: {"Agent", "application/json", Schemas.AgentResponse},
       not_found: {"Not found", "application/json", Schemas.Error},

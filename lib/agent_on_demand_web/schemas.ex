@@ -225,6 +225,30 @@ defmodule AgentOnDemandWeb.Schemas do
     })
   end
 
+  defmodule AgentUpdate do
+    require OpenApiSpex
+
+    @moduledoc """
+    Partial update — every field is optional. Used by `PUT /api/agents/:id`.
+    """
+
+    OpenApiSpex.schema(%{
+      title: "AgentUpdate",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 200},
+        description: %Schema{type: :string},
+        system: %Schema{type: :string},
+        model: %Schema{type: :string, pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"},
+        runtime: %Schema{type: :string, enum: ~w(claude codex gemini opencode)},
+        environment_id: %Schema{type: :string, format: :uuid, nullable: true},
+        skills: %Schema{type: :array, items: %Schema{type: :string}},
+        mcp_servers: %Schema{type: :object, additionalProperties: true},
+        metadata: %Schema{type: :object, additionalProperties: true}
+      }
+    })
+  end
+
   defmodule Repository do
     require OpenApiSpex
 
@@ -300,6 +324,29 @@ defmodule AgentOnDemandWeb.Schemas do
         repositories: %Schema{type: :array, items: Repository}
       },
       required: [:name]
+    })
+  end
+
+  defmodule EnvironmentUpdate do
+    require OpenApiSpex
+
+    @moduledoc """
+    Partial update — every field is optional. The server merges into the
+    existing record. Used by `PUT /api/environments/:id`.
+    """
+
+    OpenApiSpex.schema(%{
+      title: "EnvironmentUpdate",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 200},
+        packages: %Schema{type: :object, additionalProperties: true},
+        env_vars: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
+        setup_script: %Schema{type: :string},
+        networking_type: %Schema{type: :string, enum: ~w(unrestricted limited)},
+        networking_config: %Schema{type: :object, additionalProperties: true},
+        repositories: %Schema{type: :array, items: Repository}
+      }
     })
   end
 
