@@ -73,15 +73,19 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end
   end
 
-  defp build_package_commands(%{} = pkgs) do
+  @doc false
+  def build_package_commands(%{} = pkgs) do
     apt_cmds = build_apt_commands(Map.get(pkgs, "apt", []))
     npm_cmds = build_npm_commands(Map.get(pkgs, "npm", []))
     apt_cmds ++ npm_cmds
   end
 
-  defp build_apt_commands([]), do: []
+  def build_package_commands(_), do: []
 
-  defp build_apt_commands(list) when is_list(list) do
+  @doc false
+  def build_apt_commands([]), do: []
+
+  def build_apt_commands(list) when is_list(list) do
     quoted = list |> Enum.filter(&is_binary/1) |> Enum.map_join(" ", &shell_quote/1)
 
     if quoted == "",
@@ -91,9 +95,10 @@ defmodule AgentOnDemand.Conversations.Provisioning do
       ]
   end
 
-  defp build_npm_commands([]), do: []
+  @doc false
+  def build_npm_commands([]), do: []
 
-  defp build_npm_commands(list) when is_list(list) do
+  def build_npm_commands(list) when is_list(list) do
     quoted = list |> Enum.filter(&is_binary/1) |> Enum.map_join(" ", &shell_quote/1)
     if quoted == "", do: [], else: ["npm install -g --no-progress --silent #{quoted}"]
   end
@@ -191,10 +196,11 @@ defmodule AgentOnDemand.Conversations.Provisioning do
 
   defp clone_one(_, repo, _, _), do: {:error, {:clone_invalid_spec, repo}}
 
-  defp inject_token(url, nil, _), do: url
-  defp inject_token(url, "", _), do: url
+  @doc false
+  def inject_token(url, nil, _), do: url
+  def inject_token(url, "", _), do: url
 
-  defp inject_token(url, key, secrets) when is_map(secrets) do
+  def inject_token(url, key, secrets) when is_map(secrets) do
     case Map.get(secrets, key) do
       nil -> url
       "" -> url
@@ -202,24 +208,27 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end
   end
 
-  defp inject_token(url, _, _), do: url
+  def inject_token(url, _, _), do: url
 
-  defp rewrite_https_with_token("https://" <> rest, token) do
+  @doc false
+  def rewrite_https_with_token("https://" <> rest, token) do
     "https://x-access-token:#{token}@" <> rest
   end
 
-  defp rewrite_https_with_token(url, _), do: url
+  def rewrite_https_with_token(url, _), do: url
 
   # Avoid leaking the token into log_events when git's clone output echoes
   # the URL back (it sometimes does on auth errors).
-  defp scrub_token(s) when is_binary(s),
+  @doc false
+  def scrub_token(s) when is_binary(s),
     do: Regex.replace(~r{https://x-access-token:[^@]+@}, s, "https://x-access-token:***@")
 
-  defp scrub_token(s), do: s
+  def scrub_token(s), do: s
 
   # ── helpers ───────────────────────────────────────────────────────────────
 
-  defp shell_quote(s), do: "'" <> String.replace(s, "'", "'\\''") <> "'"
+  @doc false
+  def shell_quote(s), do: "'" <> String.replace(s, "'", "'\\''") <> "'"
 
   defp publish_stage(conv_id, stage, state, meta \\ %{}) do
     Conversations.log!(%{
