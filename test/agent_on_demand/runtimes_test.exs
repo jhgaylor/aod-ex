@@ -1,5 +1,6 @@
 defmodule AgentOnDemand.RuntimesTest do
   use ExUnit.Case, async: false
+  use Mimic
 
   alias AgentOnDemand.Runtimes
 
@@ -63,16 +64,31 @@ defmodule AgentOnDemand.RuntimesTest do
   describe "Gemini.build_command/5" do
     alias AgentOnDemand.Runtimes.Gemini
 
-    test ":run mode" do
-      assert {"gemini", ["--output-format", "stream-json"], _} =
-               Gemini.build_command(nil, "p", :run, nil, [])
+    test ":run mode emits stream-json + yolo approval" do
+      {"gemini", args, _} = Gemini.build_command(nil, "p", :run, nil, [])
+      assert "stream-json" in args
+      assert "--approval-mode" in args
+      assert "yolo" in args
+      refute "--resume" in args
     end
 
-    test ":continue mode adds --resume first" do
-      assert {"gemini", ["--resume" | rest], _} =
-               Gemini.build_command(nil, "p", :continue, nil, [])
-
+    test ":continue mode prepends --resume" do
+      {"gemini", ["--resume" | rest], _} = Gemini.build_command(nil, "p", :continue, nil, [])
       assert "stream-json" in rest
+    end
+
+    test "passes --allowed-mcp-server-names when agent has mcp_servers" do
+      agent = %{mcp_servers: %{"everything" => %{}, "time" => %{}}}
+      {"gemini", args, _} = Gemini.build_command(agent, "p", :run, nil, [])
+      assert "--allowed-mcp-server-names" in args
+      # All server names must appear after the flag
+      assert "everything" in args
+      assert "time" in args
+    end
+
+    test "no --allowed-mcp-server-names flag when no MCP servers" do
+      {"gemini", args, _} = Gemini.build_command(%{mcp_servers: %{}}, "p", :run, nil, [])
+      refute "--allowed-mcp-server-names" in args
     end
   end
 
@@ -121,28 +137,138 @@ defmodule AgentOnDemand.RuntimesTest do
       :ok
     end
 
-    test "anthropic/* → ANTHROPIC_API_KEY" do
+    # Every OpenCode.default_env return includes {"HOME", "/tmp"} so the
+    # opencode CLI's storage root lands somewhere the sprite user can
+    # actually access. See OpenCode.default_env/1 for context.
+    test "anthropic/* → ANTHROPIC_API_KEY (+ HOME)" do
       assert OpenCode.default_env(%{model: "anthropic/claude-opus-4-6"}) ==
-               [{"ANTHROPIC_API_KEY", "anth-x"}]
+               [{"ANTHROPIC_API_KEY", "anth-x"}, {"HOME", "/tmp"}]
     end
 
-    test "openai/* → OPENAI_API_KEY" do
+    test "openai/* → OPENAI_API_KEY (+ HOME)" do
       assert OpenCode.default_env(%{model: "openai/gpt-4.1"}) ==
-               [{"OPENAI_API_KEY", "oa-y"}]
+               [{"OPENAI_API_KEY", "oa-y"}, {"HOME", "/tmp"}]
     end
 
-    test "google/* → GEMINI_API_KEY" do
+    test "google/* → GEMINI_API_KEY (+ HOME)" do
       assert OpenCode.default_env(%{model: "google/gemini-2.5-pro"}) ==
-               [{"GEMINI_API_KEY", "g-z"}]
+               [{"GEMINI_API_KEY", "g-z"}, {"HOME", "/tmp"}]
     end
 
-    test "unknown provider returns []" do
-      assert OpenCode.default_env(%{model: "weirdco/model"}) == []
+    test "unknown provider returns just HOME" do
+      assert OpenCode.default_env(%{model: "weirdco/model"}) == [{"HOME", "/tmp"}]
     end
 
-    test "empty key returns []" do
+    test "empty key returns just HOME" do
       Application.put_env(:agent_on_demand, :openai_api_key, "")
-      assert OpenCode.default_env(%{model: "openai/gpt-4.1"}) == []
+      assert OpenCode.default_env(%{model: "openai/gpt-4.1"}) == [{"HOME", "/tmp"}]
+    end
+  end
+
+  describe "write_config/2 — MCP server config rendering" do
+    alias AgentOnDemand.Runtimes.{Claude, Codex, Gemini, OpenCode}
+
+    setup :set_mimic_global
+
+    setup do
+      Mimic.copy(Sprites)
+      Mimic.copy(Sprites.Filesystem)
+      stub(Sprites, :filesystem, fn _, _ -> :stub_fs end)
+      stub(Sprites.Filesystem, :mkdir_p, fn _, _ -> :ok end)
+      :ok
+    end
+
+    @mcp %{
+      "time" => %{
+        "command" => "npx",
+        "args" => ["-y", "@modelcontextprotocol/server-time"],
+        "env" => %{"TZ" => "UTC"}
+      }
+    }
+
+    test "Claude writes ~/.claude.json with mcpServers" do
+      test_pid = self()
+
+      stub(Sprites.Filesystem, :write, fn _, path, payload ->
+        send(test_pid, {:wrote, path, payload})
+        :ok
+      end)
+
+      Claude.write_config(:sprite, %{mcp_servers: @mcp})
+      assert_received {:wrote, "/home/sprite/.claude.json", payload}
+      assert Jason.decode!(payload) == %{"mcpServers" => @mcp}
+    end
+
+    test "Codex writes ~/.codex/config.toml with [mcp_servers.<name>] blocks" do
+      test_pid = self()
+
+      stub(Sprites.Filesystem, :write, fn _, path, payload ->
+        send(test_pid, {:wrote, path, payload})
+        :ok
+      end)
+
+      Codex.write_config(:sprite, %{mcp_servers: @mcp})
+      assert_received {:wrote, "/home/sprite/.codex/config.toml", toml}
+      assert toml =~ "[mcp_servers.time]"
+      assert toml =~ ~s(command = "npx")
+      assert toml =~ ~s(args = ["-y", "@modelcontextprotocol/server-time"])
+      assert toml =~ ~s(env = { TZ = "UTC" })
+    end
+
+    test "Gemini writes ~/.gemini/settings.json with mcpServers" do
+      test_pid = self()
+
+      stub(Sprites.Filesystem, :write, fn _, path, payload ->
+        send(test_pid, {:wrote, path, payload})
+        :ok
+      end)
+
+      Gemini.write_config(:sprite, %{mcp_servers: @mcp})
+      assert_received {:wrote, "/home/sprite/.gemini/settings.json", payload}
+      assert Jason.decode!(payload) == %{"mcpServers" => @mcp}
+    end
+
+    test "OpenCode writes opencode.json translated to mcp.<name> with type/command-array/environment" do
+      test_pid = self()
+
+      stub(Sprites.Filesystem, :write, fn _, path, payload ->
+        send(test_pid, {:wrote, path, payload})
+        :ok
+      end)
+
+      OpenCode.write_config(:sprite, %{mcp_servers: @mcp})
+
+      # Writes to both /tmp/.config and /home/sprite/.config; capture
+      # whichever comes through first and assert the schema shape.
+      assert_received {:wrote, path, payload}
+      assert path =~ "/.config/opencode/opencode.json"
+
+      decoded = Jason.decode!(payload)
+      assert decoded["$schema"] == "https://opencode.ai/config.json"
+
+      assert decoded["mcp"]["time"] == %{
+               "type" => "local",
+               "command" => ["npx", "-y", "@modelcontextprotocol/server-time"],
+               "environment" => %{"TZ" => "UTC"},
+               "enabled" => true
+             }
+    end
+
+    test "every runtime is a no-op when mcp_servers is empty / nil / agent is nil" do
+      test_pid = self()
+
+      stub(Sprites.Filesystem, :write, fn _, path, _ ->
+        send(test_pid, {:unexpected_write, path})
+        :ok
+      end)
+
+      for mod <- [Claude, Codex, Gemini, OpenCode] do
+        assert :ok = mod.write_config(:sprite, nil)
+        assert :ok = mod.write_config(:sprite, %{mcp_servers: %{}})
+        assert :ok = mod.write_config(:sprite, %{mcp_servers: nil})
+      end
+
+      refute_received {:unexpected_write, _}
     end
   end
 end
