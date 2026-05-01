@@ -151,29 +151,14 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         write_runtime_config(sprite, state.runtime_module, agent)
         AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
 
-        with :ok <-
-               AgentOnDemand.Conversations.Provisioning.apply_network_policy(
-                 sprite,
-                 env,
-                 state.conversation_id
-               ),
-             :ok <-
-               AgentOnDemand.Conversations.Provisioning.install_packages(
-                 sprite,
-                 env,
-                 sprite_env,
-                 state.conversation_id
-               ),
-             :ok <-
-               AgentOnDemand.Conversations.Provisioning.clone_repositories(
-                 sprite,
-                 env,
-                 secrets,
-                 state.conversation_id
-               ),
-             :ok <- run_setup_script(sprite, env, sprite_env, state.conversation_id) do
+        with :ok <- run_provisioning_pipeline(sprite, env, sprite_env, secrets, state.conversation_id) do
           {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
           publish_stage(state.conversation_id, "provision", "done")
+
+          # Best-effort: snapshot the fully-provisioned state so subsequent
+          # conversations on this env can warm-start from it. Async so it
+          # doesn't block the user's first turn.
+          maybe_create_checkpoint_async(sprite, env)
 
           new_state = %{state | sprite: sprite, sprite_env: sprite_env}
 
@@ -202,6 +187,93 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
     end
+  end
+
+  # Try a checkpoint restore first if the env has one. If restore
+  # succeeds, skip the slow steps (network policy + packages + clone +
+  # setup_script) — they all ran when the checkpoint was originally
+  # taken. If restore fails, clear the checkpoint id and fall through to
+  # the full pipeline.
+  defp run_provisioning_pipeline(sprite, env, sprite_env, secrets, conv_id) do
+    case attempt_warm_start(sprite, env, conv_id) do
+      :warm_started ->
+        :ok
+
+      :cold ->
+        with :ok <-
+               AgentOnDemand.Conversations.Provisioning.apply_network_policy(sprite, env, conv_id),
+             :ok <-
+               AgentOnDemand.Conversations.Provisioning.install_packages(
+                 sprite,
+                 env,
+                 sprite_env,
+                 conv_id
+               ),
+             :ok <-
+               AgentOnDemand.Conversations.Provisioning.clone_repositories(
+                 sprite,
+                 env,
+                 secrets,
+                 conv_id
+               ),
+             :ok <- run_setup_script(sprite, env, sprite_env, conv_id) do
+          :ok
+        end
+    end
+  end
+
+  defp attempt_warm_start(_sprite, nil, _conv_id), do: :cold
+  defp attempt_warm_start(_sprite, %{checkpoint_id: nil}, _conv_id), do: :cold
+  defp attempt_warm_start(_sprite, %{checkpoint_id: ""}, _conv_id), do: :cold
+
+  defp attempt_warm_start(sprite, %{checkpoint_id: id} = env, conv_id) do
+    publish_stage(conv_id, "checkpoint_restore", "started", %{checkpoint_id: id})
+
+    case AgentOnDemand.Conversations.Provisioning.restore_checkpoint(sprite, id) do
+      {:ok, _} ->
+        publish_stage(conv_id, "checkpoint_restore", "done", %{checkpoint_id: id})
+        :warm_started
+
+      {:error, reason} ->
+        Logger.warning(
+          "checkpoint #{id} on env #{env.name} restore failed (#{inspect(reason)}); clearing + cold provisioning"
+        )
+
+        publish_stage(conv_id, "checkpoint_restore", "failed", %{
+          checkpoint_id: id,
+          reason: inspect(reason)
+        })
+
+        # Clear the stale checkpoint so future runs don't keep retrying.
+        AgentOnDemand.Environments.update_environment(env, %{"checkpoint_id" => nil})
+        :cold
+    end
+  end
+
+  defp maybe_create_checkpoint_async(_sprite, nil), do: :ok
+  defp maybe_create_checkpoint_async(_sprite, %{checkpoint_id: id}) when is_binary(id) and id != "",
+    do: :ok
+
+  defp maybe_create_checkpoint_async(sprite, %AgentOnDemand.Environments.Environment{} = env) do
+    if checkpoint_creation_enabled?() do
+      Task.start(fn ->
+        try do
+          AgentOnDemand.Conversations.Provisioning.create_checkpoint(sprite, env)
+        rescue
+          # Best-effort: if the env was deleted or the DB is gone (test
+          # teardown), don't crash the Task and pollute logs.
+          _ -> :ok
+        end
+      end)
+    end
+
+    :ok
+  end
+
+  defp maybe_create_checkpoint_async(_sprite, _), do: :ok
+
+  defp checkpoint_creation_enabled? do
+    Application.get_env(:agent_on_demand, :checkpoint_creation_enabled, true)
   end
 
   defp reattach(state, _conv, sandbox, agent, env, secrets) do

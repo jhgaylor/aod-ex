@@ -21,6 +21,11 @@ config :agent_on_demand, AgentOnDemandWeb.Endpoint,
 # Sprites API. Tests start servers explicitly with mocked sprites.
 config :agent_on_demand, :skip_rehydrate, true
 
+# Disable async checkpoint creation in tests; the Task can outlive the
+# test process and try to update the DB after the Ecto sandbox has been
+# released.
+config :agent_on_demand, :checkpoint_creation_enabled, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

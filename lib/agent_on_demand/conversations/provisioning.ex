@@ -67,6 +67,86 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end
   end
 
+  # ── checkpoint create / restore ───────────────────────────────────────────
+
+  @doc """
+  Create a sprites.dev checkpoint of the fully-provisioned sprite. The
+  checkpoint id is persisted onto the environment row so subsequent
+  conversations can warm-start from it instead of redoing
+  packages/repos/setup_script.
+
+  Best-effort — failures are logged and don't block the conversation.
+  Caller typically wraps in `Task.start/1` so the user's first turn
+  isn't gated on the checkpoint upload.
+  """
+  def create_checkpoint(_sprite, nil), do: {:error, :no_env}
+
+  def create_checkpoint(sprite, %Environment{} = env) do
+    AgentOnDemand.Telemetry.span([:checkpoint, :create], %{env_id: env.id}, fn ->
+      case Sprites.create_checkpoint(sprite, comment: "aod env #{env.name}") do
+        {:ok, stream} ->
+          checkpoint_id =
+            stream
+            |> Enum.reduce(nil, fn msg, acc -> extract_checkpoint_id(msg) || acc end)
+
+          if is_binary(checkpoint_id) and checkpoint_id != "" do
+            {:ok, _} =
+              AgentOnDemand.Environments.update_environment(env, %{
+                "checkpoint_id" => checkpoint_id
+              })
+
+            {{:ok, checkpoint_id}, %{outcome: :ok, checkpoint_id: checkpoint_id}}
+          else
+            Logger.warning("checkpoint create stream finished without a checkpoint_id")
+            {{:error, :no_checkpoint_id}, %{outcome: :no_id}}
+          end
+
+        {:error, reason} ->
+          Logger.warning("checkpoint create failed for env #{env.name}: #{inspect(reason)}")
+          {{:error, reason}, %{outcome: :failed, reason: inspect(reason)}}
+      end
+    end)
+  end
+
+  defp extract_checkpoint_id(%{"checkpoint_id" => id}) when is_binary(id), do: id
+  defp extract_checkpoint_id(%{checkpoint_id: id}) when is_binary(id), do: id
+  defp extract_checkpoint_id(%{"id" => id}) when is_binary(id), do: id
+  defp extract_checkpoint_id(_), do: nil
+
+  @doc """
+  Restore a sprite from a saved checkpoint. Drains the stream so the
+  operation is fully complete on return. Returns `:ok` on success or
+  `{:error, reason}` if the checkpoint is gone / restore failed; the
+  caller should clear `env.checkpoint_id` and fall back to fresh
+  provisioning.
+  """
+  def restore_checkpoint(_sprite, nil), do: {:error, :no_checkpoint}
+  def restore_checkpoint(_sprite, ""), do: {:error, :no_checkpoint}
+
+  def restore_checkpoint(sprite, checkpoint_id) when is_binary(checkpoint_id) do
+    AgentOnDemand.Telemetry.span(
+      [:checkpoint, :restore],
+      %{checkpoint_id: checkpoint_id},
+      fn ->
+        case Sprites.restore_checkpoint(sprite, checkpoint_id) do
+          {:ok, stream} ->
+            try do
+              Enum.each(stream, fn _ -> :ok end)
+              {:ok, %{outcome: :ok}}
+            rescue
+              e ->
+                Logger.warning("checkpoint restore stream raised: #{inspect(e)}")
+                {{:error, :stream_error}, %{outcome: :stream_error}}
+            end
+
+          {:error, reason} ->
+            Logger.warning("checkpoint restore failed: #{inspect(reason)}")
+            {{:error, reason}, %{outcome: :failed, reason: inspect(reason)}}
+        end
+      end
+    )
+  end
+
   # ── packages ──────────────────────────────────────────────────────────────
 
   @doc """

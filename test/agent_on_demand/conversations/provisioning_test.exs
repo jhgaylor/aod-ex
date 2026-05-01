@@ -155,4 +155,36 @@ defmodule AgentOnDemand.Conversations.ProvisioningTest do
       assert Provisioning.scrub_token(:atom) == :atom
     end
   end
+
+  describe "checkpoint create / restore" do
+    use Mimic
+
+    setup do
+      stub(Sprites, :create_checkpoint, fn _, _opts ->
+        {:ok, [%{"checkpoint_id" => "cp-12345"}]}
+      end)
+
+      stub(Sprites, :restore_checkpoint, fn _, _id -> {:ok, []} end)
+
+      {:ok, env: %AgentOnDemand.Environments.Environment{id: Ecto.UUID.generate(), name: "x"}}
+    end
+
+    test "create_checkpoint with no env returns :no_env" do
+      assert {:error, :no_env} = Provisioning.create_checkpoint(:fake_sprite, nil)
+    end
+
+    test "restore_checkpoint with nil/empty id is rejected" do
+      assert {:error, :no_checkpoint} = Provisioning.restore_checkpoint(:fake_sprite, nil)
+      assert {:error, :no_checkpoint} = Provisioning.restore_checkpoint(:fake_sprite, "")
+    end
+
+    test "restore_checkpoint drains the stream and returns :ok" do
+      assert :ok = Provisioning.restore_checkpoint(:fake_sprite, "cp-123")
+    end
+
+    test "restore_checkpoint returns {:error, _} when SDK errors" do
+      stub(Sprites, :restore_checkpoint, fn _, _id -> {:error, :gone} end)
+      assert {:error, :gone} = Provisioning.restore_checkpoint(:fake_sprite, "cp-123")
+    end
+  end
 end
