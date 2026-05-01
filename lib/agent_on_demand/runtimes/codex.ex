@@ -2,45 +2,61 @@ defmodule AgentOnDemand.Runtimes.Codex do
   @moduledoc """
   OpenAI Codex CLI runtime.
 
-  Argv shape (mirrors AoD's `build_codex_command`):
+  Argv shape:
 
       mode == :run       → codex exec
                               --dangerously-bypass-approvals-and-sandbox
-                              --json
+                              --json <PROMPT>
       mode == :continue  → codex exec resume --last
                               --dangerously-bypass-approvals-and-sandbox
-                              --json
+                              --json <PROMPT>
+
+  The prompt is passed as the **trailing positional argument** rather
+  than on stdin. When codex sees a piped stdin it logs an ugly
+  `"Reading prompt from stdin..."` line to stderr; passing the prompt
+  in argv side-steps that. We return `stdin?: false` from build_command
+  so conversation_server skips the write/close_stdin dance.
 
   Codex tracks its own per-workspace conversation state on disk, so we
   pass no session id; `--last` (in `continue` mode) tells it to reattach
   to the most recent conversation in the workspace. `--json` is the
   line-delimited stream-json output the worker tails into LogEvents.
 
-  Auth: `OPENAI_API_KEY` exported into the sprite.
+  Auth: `OPENAI_API_KEY` is consumed once at provision time via
+  `prepare_sprite/3` (see below).
   """
 
   @behaviour AgentOnDemand.Runtimes
 
   @impl true
-  def build_command(_agent, _prompt, mode, _runtime_session_id, _opts) do
-    args =
+  def build_command(_agent, prompt, mode, _runtime_session_id, _opts) do
+    base =
       if mode == :continue do
         [
           "exec",
           "resume",
           "--last",
           "--dangerously-bypass-approvals-and-sandbox",
-          "--json"
+          "--json",
+          "--color",
+          "never"
         ]
       else
         [
           "exec",
           "--dangerously-bypass-approvals-and-sandbox",
-          "--json"
+          "--json",
+          "--color",
+          "never"
         ]
       end
 
-    {"codex", args, []}
+    # codex prints an "additional input from stdin" / "prompt from
+    # stdin" warning whenever `isatty(0)` is false. Both a piped stdin
+    # AND a /dev/null redirect trigger it. Allocate a PTY (`tty?: true`)
+    # so codex sees stdin as a TTY and stays quiet. We pass the prompt
+    # as argv so codex doesn't actually read from the PTY.
+    {"codex", base ++ [prompt], stdin?: false, tty?: true}
   end
 
   @impl true

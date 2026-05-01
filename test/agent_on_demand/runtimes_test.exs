@@ -48,16 +48,26 @@ defmodule AgentOnDemand.RuntimesTest do
   describe "Codex.build_command/5" do
     alias AgentOnDemand.Runtimes.Codex
 
-    test ":run mode invokes codex exec" do
-      assert {"codex", ["exec" | rest], _} = Codex.build_command(nil, "p", :run, nil, [])
-      assert "--dangerously-bypass-approvals-and-sandbox" in rest
-      assert "--json" in rest
-      refute "resume" in rest
+    test ":run mode invokes codex exec with prompt as final argv + tty/no-stdin opts" do
+      {"codex", args, opts} = Codex.build_command(nil, "hi there", :run, nil, [])
+      assert "exec" in args
+      assert "--dangerously-bypass-approvals-and-sandbox" in args
+      assert "--json" in args
+      assert ["--color", "never"] |> Enum.all?(&(&1 in args))
+      refute "resume" in args
+      assert List.last(args) == "hi there"
+      # Skip the stdin pipe AND allocate a PTY so codex's isatty(0)
+      # check is satisfied (kills the noisy startup banner).
+      assert opts[:stdin?] == false
+      assert opts[:tty?] == true
     end
 
-    test ":continue mode adds resume --last in correct position" do
-      assert {"codex", ["exec", "resume", "--last" | _], _} =
-               Codex.build_command(nil, "p", :continue, nil, [])
+    test ":continue mode adds resume --last and still trails the prompt" do
+      {"codex", args, opts} = Codex.build_command(nil, "follow up", :continue, nil, [])
+      assert ["exec", "resume", "--last" | _] = args
+      assert List.last(args) == "follow up"
+      assert opts[:stdin?] == false
+      assert opts[:tty?] == true
     end
   end
 

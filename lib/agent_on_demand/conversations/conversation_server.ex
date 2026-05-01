@@ -693,8 +693,18 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
           existing
       end
 
-    {cmd, args, _opts} =
+    {cmd, args, build_opts} =
       state.runtime_module.build_command(agent, prompt, mode, runtime_session_id, [])
+
+    # If a runtime embeds the prompt in argv (codex), it returns
+    # `stdin?: false` and we skip the Sprites.write/close_stdin pipeline.
+    # claude / gemini / opencode default to true and read from stdin.
+    use_stdin? = Keyword.get(build_opts, :stdin?, true)
+
+    # codex emits a noisy "additional input from stdin" warning when
+    # `isatty(0)` is false; allocating a PTY suppresses it. Other
+    # runtimes default to no PTY.
+    use_tty? = Keyword.get(build_opts, :tty?, false)
 
     publish_stage(state.conversation_id, "turn", "started", %{
       turn_id: turn.id,
@@ -725,14 +735,17 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       case Sprites.spawn(state.sprite, cmd, args,
              env: state.sprite_env,
              owner: self(),
-             stdin: true,
+             stdin: use_stdin?,
+             tty: use_tty?,
              # Detachable: the sprite-side session survives a WebSocket
              # disconnect, so a BEAM restart can list_sessions + reattach.
              detachable: true
            ) do
         {:ok, command} ->
-          :ok = Sprites.write(command, prompt)
-          :ok = Sprites.close_stdin(command)
+          if use_stdin? do
+            :ok = Sprites.write(command, prompt)
+            :ok = Sprites.close_stdin(command)
+          end
 
           %{
             state
