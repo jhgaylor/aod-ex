@@ -356,18 +356,12 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     if is_nil(running_turn) do
       state
     else
-      # Wake the sprite if it's `cold` — sprites.dev hibernates the VM
-      # after the WebSocket drops, and `list_sessions` against a paused
-      # sprite returns an empty list even when there's a still-alive
-      # detached exec on it. A trivial command warms the VM.
-      _ = Sprites.cmd(state.sprite, "true", [], timeout: 15_000)
-
       case Sprites.list_sessions(state.sprite) do
         {:ok, sessions} ->
-          # Don't filter by `is_active`. A detached session — exactly
-          # what we want to reattach to — is reported as inactive
-          # because no client is connected, but the underlying exec
-          # is alive and attach_session will resume the stream.
+          # Don't filter by `is_active`: a detached session reports
+          # `is_active: false` while no client is connected, but the
+          # underlying exec is alive and `attach_session` resumes its
+          # stream (replaying the session buffer + live-tailing).
           attempt_session_attach(state, running_turn, sessions)
 
         {:error, reason} ->
