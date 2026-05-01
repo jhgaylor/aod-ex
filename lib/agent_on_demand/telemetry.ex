@@ -31,16 +31,61 @@ defmodule AgentOnDemand.Telemetry do
 
   @prefix [:agent_on_demand]
 
+  require OpenTelemetry.Tracer, as: Tracer
+
   @doc """
-  Wrap work in `:telemetry.span/3` with our `:agent_on_demand` prefix.
+  Wrap work in *both* a `:telemetry.span/3` event pair and an OTel span.
 
   The closure must return `{result, extra_metadata}` (typical
-  `:telemetry.span/3` signature). To skip extra metadata, wrap with
-  `{value, %{}}`.
+  `:telemetry.span/3` signature). The OTel span gets the merged
+  metadata as attributes; if `extra_metadata.outcome` is
+  `:failed`/`:error` the span is marked as an error.
+
+  Existing callers don't change. Adding new instrumentation is a
+  single line: wrap the work, return `{result, %{}}`.
   """
   def span(name, metadata, fun) when is_list(name) and is_map(metadata) and is_function(fun, 0) do
-    :telemetry.span(@prefix ++ name, metadata, fun)
+    label = Enum.join(@prefix ++ name, ".")
+    parent = Tracer.start_span(label, %{attributes: span_attributes(metadata)})
+    previous = Tracer.set_current_span(parent)
+
+    try do
+      :telemetry.span(@prefix ++ name, metadata, fn ->
+        {result, extra} = fun.()
+
+        for {k, v} <- span_attributes(extra), do: Tracer.set_attribute(k, v)
+
+        case Map.get(extra, :outcome) do
+          o when o in [:failed, :error] ->
+            Tracer.set_status(OpenTelemetry.status(:error, inspect(extra)))
+
+          _ ->
+            :ok
+        end
+
+        {result, extra}
+      end)
+    after
+      Tracer.end_span(parent)
+      Tracer.set_current_span(previous)
+    end
   end
+
+  # OTel span attribute values must be strings, numbers, booleans, or
+  # arrays of those. PIDs / refs / functions / structs get inspected.
+  defp span_attributes(metadata) when is_map(metadata) do
+    metadata
+    |> Enum.flat_map(fn
+      {_, v} when is_pid(v) or is_reference(v) or is_function(v) -> []
+      {k, v} when is_binary(v) or is_number(v) or is_boolean(v) -> [{to_string(k), v}]
+      {k, v} when is_atom(v) -> [{to_string(k), Atom.to_string(v)}]
+      {k, v} when is_list(v) -> [{to_string(k), inspect(v)}]
+      {k, v} -> [{to_string(k), inspect(v)}]
+    end)
+    |> Map.new()
+  end
+
+  defp span_attributes(_), do: %{}
 
   @doc "Emit a one-shot event under the `:agent_on_demand` prefix."
   def event(name, metadata \\ %{}, measurements \\ %{}) when is_list(name) do
@@ -99,17 +144,14 @@ defmodule AgentOnDemand.Telemetry do
   defp stringify_value(v), do: v
 
   @doc """
-  Stub. Placeholder for future custom-span bridging from `:telemetry` to
-  OTel via `OpentelemetryTelemetry`. Today the app gets its OTel spans
-  from `opentelemetry_phoenix` (HTTP requests) and `opentelemetry_ecto`
-  (DB queries) auto-instrumentation. Our custom `:agent_on_demand`
-  events still ship to the JSON logger via `attach_default_logger/0`,
-  and operators can attach their own OTel handler if they want
-  end-to-end coverage of provisioning steps.
+  No-op kept as an attach hook for future operator-provided handlers.
+
+  Custom OTel spans are emitted directly inside `span/3` (it wraps the
+  closure with `OpenTelemetry.Tracer.with_span/3`), so no bridge is
+  needed. `opentelemetry_phoenix` + `opentelemetry_ecto` cover HTTP
+  and DB.
   """
-  def attach_otel_bridge do
-    :ok
-  end
+  def attach_otel_bridge, do: :ok
 
   @doc """
   Returns the current span context as a W3C Trace Context (`traceparent`)

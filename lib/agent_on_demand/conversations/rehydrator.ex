@@ -18,19 +18,21 @@ defmodule AgentOnDemand.Conversations.Rehydrator do
   alias AgentOnDemand.Conversations.ConversationServer
 
   def run do
-    convs = Conversations.list_resumable_conversations()
-    Logger.info("rehydrator: scanning #{length(convs)} resumable conversation(s)")
+    AgentOnDemand.Telemetry.span([:rehydrate], %{}, fn ->
+      convs = Conversations.list_resumable_conversations()
+      Logger.info("rehydrator: scanning #{length(convs)} resumable conversation(s)")
 
-    started =
-      Enum.reduce(convs, 0, fn conv, count ->
-        case spawn_server(conv) do
-          {:ok, _pid} -> count + 1
-          _ -> count
-        end
-      end)
+      started =
+        Enum.reduce(convs, 0, fn conv, count ->
+          case spawn_server(conv) do
+            {:ok, _pid} -> count + 1
+            _ -> count
+          end
+        end)
 
-    Logger.info("rehydrator: started #{started} ConversationServer(s)")
-    started
+      Logger.info("rehydrator: started #{started} ConversationServer(s)")
+      {started, %{candidates: length(convs), started: started}}
+    end)
   end
 
   defp spawn_server(conv) do

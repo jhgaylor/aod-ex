@@ -244,22 +244,24 @@ defmodule AgentOnDemand.Conversations.Provisioning do
   def apply_network_policy(sprite, %Environment{networking_type: "limited"} = env, conv_id) do
     hosts = get_in(env.networking_config, ["allowed_hosts"]) || []
 
-    rules =
-      Enum.map(hosts, fn h ->
-        %Sprites.Policy.Rule{domain: h, action: "allow"}
-      end)
+    AgentOnDemand.Telemetry.span(
+      [:network_policy],
+      %{conv_id: conv_id, hosts: length(hosts)},
+      fn ->
+        rules = Enum.map(hosts, &%Sprites.Policy.Rule{domain: &1, action: "allow"})
+        publish_stage(conv_id, "network", "started", %{type: "limited", hosts: length(hosts)})
 
-    publish_stage(conv_id, "network", "started", %{type: "limited", hosts: length(hosts)})
+        case Sprites.update_network_policy(sprite, %Sprites.Policy{rules: rules}) do
+          :ok ->
+            publish_stage(conv_id, "network", "done")
+            {:ok, %{outcome: :ok}}
 
-    case Sprites.update_network_policy(sprite, %Sprites.Policy{rules: rules}) do
-      :ok ->
-        publish_stage(conv_id, "network", "done")
-        :ok
-
-      {:error, reason} ->
-        publish_stage(conv_id, "network", "failed", %{reason: inspect(reason)})
-        {:error, {:network_policy, reason}}
-    end
+          {:error, reason} ->
+            publish_stage(conv_id, "network", "failed", %{reason: inspect(reason)})
+            {{:error, {:network_policy, reason}}, %{outcome: :failed, reason: inspect(reason)}}
+        end
+      end
+    )
   end
 
   def apply_network_policy(_sprite, _env, _conv_id), do: :ok
@@ -278,23 +280,31 @@ defmodule AgentOnDemand.Conversations.Provisioning do
       do: :ok
 
   def clone_repositories(sprite, %Environment{repositories: repos}, secrets, conv_id) do
-    publish_stage(conv_id, "clone", "started", %{count: length(repos)})
+    AgentOnDemand.Telemetry.span(
+      [:clone_repositories],
+      %{conv_id: conv_id, count: length(repos)},
+      fn ->
+        publish_stage(conv_id, "clone", "started", %{count: length(repos)})
 
-    Enum.reduce_while(repos, :ok, fn repo, _ ->
-      case clone_one(sprite, repo, secrets, conv_id) do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
+        result =
+          Enum.reduce_while(repos, :ok, fn repo, _ ->
+            case clone_one(sprite, repo, secrets, conv_id) do
+              :ok -> {:cont, :ok}
+              err -> {:halt, err}
+            end
+          end)
+
+        case result do
+          :ok ->
+            publish_stage(conv_id, "clone", "done")
+            {:ok, %{outcome: :ok}}
+
+          {:error, reason} = err ->
+            publish_stage(conv_id, "clone", "failed", %{reason: inspect(reason)})
+            {err, %{outcome: :failed, reason: inspect(reason)}}
+        end
       end
-    end)
-    |> case do
-      :ok ->
-        publish_stage(conv_id, "clone", "done")
-        :ok
-
-      {:error, reason} = err ->
-        publish_stage(conv_id, "clone", "failed", %{reason: inspect(reason)})
-        err
-    end
+    )
   end
 
   defp clone_one(sprite, %{"url" => url} = repo, secrets, conv_id) do

@@ -11,6 +11,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
   use GenServer, restart: :transient
   require Logger
+  require OpenTelemetry.Tracer
 
   alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient}
 
@@ -104,7 +105,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       current_command: nil,
       current_command_ref: nil,
       current_turn: nil,
-      runtime_session_id: nil
+      runtime_session_id: nil,
+      # OTel span context for the in-flight turn (started in kick_turn,
+      # ended in the :exit / :interrupt handlers).
+      current_turn_span: nil
     }
 
     {:ok, state, {:continue, :provision}}
@@ -138,6 +142,14 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp fresh_provision(state, conv, sandbox, agent, env, secrets) do
+    AgentOnDemand.Telemetry.span(
+      [:fresh_provision],
+      %{conv_id: state.conversation_id, sandbox_id: sandbox.id, env_id: env && env.id},
+      fn -> {do_fresh_provision(state, conv, sandbox, agent, env, secrets), %{}} end
+    )
+  end
+
+  defp do_fresh_provision(state, conv, sandbox, agent, env, secrets) do
     {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
     publish_stage(state.conversation_id, "provision", "started")
 
@@ -279,7 +291,15 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     Application.get_env(:agent_on_demand, :checkpoint_creation_enabled, true)
   end
 
-  defp reattach(state, _conv, sandbox, agent, env, secrets) do
+  defp reattach(state, conv, sandbox, agent, env, secrets) do
+    AgentOnDemand.Telemetry.span(
+      [:reattach],
+      %{conv_id: state.conversation_id, sprite_name: sandbox.sprite_name},
+      fn -> {do_reattach(state, conv, sandbox, agent, env, secrets), %{}} end
+    )
+  end
+
+  defp do_reattach(state, _conv, sandbox, agent, env, secrets) do
     publish_stage(state.conversation_id, "reattach", "started", %{
       sprite_name: sandbox.sprite_name
     })
@@ -435,29 +455,35 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   defp run_setup_script(_sprite, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
 
   defp run_setup_script(sprite, %{setup_script: script}, sprite_env, conv_id) do
-    publish_stage(conv_id, "setup", "started")
+    AgentOnDemand.Telemetry.span(
+      [:setup_script],
+      %{conv_id: conv_id, script_size: byte_size(script)},
+      fn ->
+        publish_stage(conv_id, "setup", "started")
 
-    {output, code} =
-      Sprites.cmd(sprite, "bash", ["-lc", script],
-        env: sprite_env,
-        stderr_to_stdout: true,
-        timeout: 120_000
-      )
+        {output, code} =
+          Sprites.cmd(sprite, "bash", ["-lc", script],
+            env: sprite_env,
+            stderr_to_stdout: true,
+            timeout: 120_000
+          )
 
-    Conversations.log!(%{
-      conversation_id: conv_id,
-      kind: "output",
-      stream: "stdout",
-      data: output
-    })
+        Conversations.log!(%{
+          conversation_id: conv_id,
+          kind: "output",
+          stream: "stdout",
+          data: output
+        })
 
-    if code == 0 do
-      publish_stage(conv_id, "setup", "done", %{exit_code: code})
-      :ok
-    else
-      publish_stage(conv_id, "setup", "failed", %{exit_code: code})
-      {:error, {:setup_exit, code}}
-    end
+        if code == 0 do
+          publish_stage(conv_id, "setup", "done", %{exit_code: code})
+          {:ok, %{outcome: :ok, exit_code: code}}
+        else
+          publish_stage(conv_id, "setup", "failed", %{exit_code: code})
+          {{:error, {:setup_exit, code}}, %{outcome: :failed, exit_code: code}}
+        end
+      end
+    )
   end
 
   defp write_runtime_config(sprite, runtime_module, agent) do
@@ -503,10 +529,19 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       turn_number: state.current_turn.turn_number
     })
 
+    end_turn_span(state.current_turn_span, :error, %{"outcome" => "interrupted"})
+
     conv = Conversations.get_conversation!(state.conversation_id)
     {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
 
-    {:reply, :ok, %{state | current_command: nil, current_command_ref: nil, current_turn: nil}}
+    {:reply, :ok,
+     %{
+       state
+       | current_command: nil,
+         current_command_ref: nil,
+         current_turn: nil,
+         current_turn_span: nil
+     }}
   end
 
   def handle_call(:terminate_conv, _from, state) do
@@ -549,10 +584,24 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       exit_code: code
     })
 
+    # Close the OTel turn span we opened in kick_turn.
+    end_turn_span(
+      state.current_turn_span,
+      if(code == 0, do: :ok, else: :error),
+      %{"exit_code" => code}
+    )
+
     conv = Conversations.get_conversation!(state.conversation_id)
     {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
 
-    {:noreply, %{state | current_command: nil, current_command_ref: nil, current_turn: nil}}
+    {:noreply,
+     %{
+       state
+       | current_command: nil,
+         current_command_ref: nil,
+         current_turn: nil,
+         current_turn_span: nil
+     }}
   end
 
   def handle_info({:error, _ref, reason}, state) do
@@ -624,25 +673,46 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       mode: Atom.to_string(mode)
     })
 
-    case Sprites.spawn(state.sprite, cmd, args,
-           env: state.sprite_env,
-           owner: self(),
-           stdin: true,
-           # Detachable: the sprite-side session survives a WebSocket
-           # disconnect, so a BEAM restart can list_sessions + reattach.
-           detachable: true
-         ) do
-      {:ok, command} ->
-        :ok = Sprites.write(command, prompt)
-        :ok = Sprites.close_stdin(command)
-
-        %{
-          state
-          | current_command: command,
-            current_command_ref: command.ref,
-            current_turn: turn,
-            runtime_session_id: runtime_session_id
+    # Open an OTel span for the turn. We can't use Telemetry.span here
+    # because the turn finishes asynchronously (in the :exit handler);
+    # so we open it explicitly and store the span context in state to
+    # close it later. While this span is current, build_sprite_env
+    # picks up the trace context as TRACEPARENT for the runtime CLI.
+    turn_span =
+      OpenTelemetry.Tracer.start_span("agent_on_demand.turn", %{
+        attributes: %{
+          "conv_id" => conv.id,
+          "turn_id" => turn.id,
+          "turn_number" => turn_number,
+          "mode" => Atom.to_string(mode),
+          "runtime" => to_string(conv.runtime),
+          "model" => agent && agent.model
         }
+      })
+
+    previous_span = OpenTelemetry.Tracer.set_current_span(turn_span)
+
+    try do
+      case Sprites.spawn(state.sprite, cmd, args,
+             env: state.sprite_env,
+             owner: self(),
+             stdin: true,
+             # Detachable: the sprite-side session survives a WebSocket
+             # disconnect, so a BEAM restart can list_sessions + reattach.
+             detachable: true
+           ) do
+        {:ok, command} ->
+          :ok = Sprites.write(command, prompt)
+          :ok = Sprites.close_stdin(command)
+
+          %{
+            state
+            | current_command: command,
+              current_command_ref: command.ref,
+              current_turn: turn,
+              runtime_session_id: runtime_session_id,
+              current_turn_span: turn_span
+          }
 
       {:error, reason} ->
         Logger.error("spawn failed: #{inspect(reason)}")
@@ -658,8 +728,43 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
           reason: inspect(reason)
         })
 
+        # Spawn never started; close the span we just opened so it
+        # doesn't leak.
+        OpenTelemetry.Tracer.set_status(
+          OpenTelemetry.status(:error, "spawn_failed: #{inspect(reason)}")
+        )
+
+        OpenTelemetry.Tracer.end_span(turn_span)
+        OpenTelemetry.Tracer.set_current_span(previous_span)
+
         state
+      end
+    after
+      # The successful path keeps the span open until :exit; the error
+      # path above closes it explicitly. In both cases we restore the
+      # caller's previous current-span here.
+      OpenTelemetry.Tracer.set_current_span(previous_span)
     end
+  end
+
+  # End the OTel turn span (if any) with a status reflecting the
+  # outcome. Called from the :exit and :interrupt handlers.
+  defp end_turn_span(nil, _outcome, _attrs), do: :ok
+
+  defp end_turn_span(span_ctx, outcome, attrs) do
+    OpenTelemetry.Tracer.set_current_span(span_ctx)
+
+    Enum.each(attrs, fn {k, v} -> OpenTelemetry.Tracer.set_attribute(to_string(k), v) end)
+
+    case outcome do
+      :error ->
+        OpenTelemetry.Tracer.set_status(OpenTelemetry.status(:error, inspect(attrs)))
+
+      _ ->
+        :ok
+    end
+
+    OpenTelemetry.Tracer.end_span(span_ctx)
   end
 
   defp log_output(state, stream, data) do
