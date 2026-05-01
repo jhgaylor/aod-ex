@@ -7,6 +7,9 @@ defmodule AgentOnDemand.Application do
 
   @impl true
   def start(_type, _args) do
+    AgentOnDemandWeb.Plugs.RateLimit.ensure_table()
+    AgentOnDemand.Telemetry.attach_default_logger()
+
     children = [
       AgentOnDemandWeb.Telemetry,
       AgentOnDemand.Repo,
