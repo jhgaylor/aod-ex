@@ -2,6 +2,13 @@
 
 Notable changes since the v1 functional baseline ("the four functional gaps closed"). Reverse-chronological — newest at top.
 
+## Production polish + remaining runtimes (2026-05-01, second pass)
+
+- **OpenTelemetry stack** — `opentelemetry`, `opentelemetry_phoenix` (auto HTTP spans), `opentelemetry_ecto` (auto DB spans), OTLP exporter. Configured opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT` (no-op when unset). `TRACEPARENT` propagated into the sprite env so claude / codex / gemini / opencode tag their model API calls into our trace.
+- **CI on GitHub Actions** running `mix precommit` on push + PR. Cached deps + `_build`. Pinned to the same Elixir/OTP versions render.yaml uses.
+- **Credo + Dialyxir** in `mix precommit`. Credo runs `--strict --mute-exit-status` for now (60 stylistic findings to clean up incrementally — none block CI). Dialyzer PLT cached at `priv/plts/`.
+- **Codex, Gemini, OpenCode runtimes.** All four runtimes now ported. Codex + Gemini self-manage their conversation state (no session id needed). OpenCode is a multi-provider front; `default_env/1` picks ANTHROPIC/OPENAI/GEMINI key based on the model's provider prefix.
+
 ## Overnight resilience pass (2026-05-01)
 
 The user's "durable, well tested, clusterable, observability, audit log, rate limiting" priorities, taken end to end. Each item below is its own commit.
