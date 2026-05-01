@@ -284,7 +284,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   defp attempt_session_attach(state, running_turn, [session | _]) do
     case Sprites.attach_session(state.sprite, session.id, owner: self(), stdin: true) do
       {:ok, command} ->
-        publish_stage(state.conversation_id, "reattach", "session_attached", %{
+        publish_stage(state.conversation_id, "reattach", "done", %{
+          outcome: "session_attached",
           session_id: session.id,
           turn_id: running_turn.id,
           turn_number: running_turn.turn_number
@@ -314,7 +315,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
 
-    publish_stage(state.conversation_id, "reattach", "turn_orphaned", %{
+    publish_stage(state.conversation_id, "reattach", "interrupted", %{
+      outcome: "turn_orphaned",
       turn_id: running_turn.id,
       turn_number: running_turn.turn_number,
       reason: why
