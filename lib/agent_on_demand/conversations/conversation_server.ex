@@ -353,21 +353,28 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   defp reattach_running_turn(state) do
     running_turn = find_running_turn(state.conversation_id)
 
-    cond do
-      is_nil(running_turn) ->
-        # No DB record of a running turn; nothing to reattach to.
-        state
+    if is_nil(running_turn) do
+      state
+    else
+      # Wake the sprite if it's `cold` — sprites.dev hibernates the VM
+      # after the WebSocket drops, and `list_sessions` against a paused
+      # sprite returns an empty list even when there's a still-alive
+      # detached exec on it. A trivial command warms the VM.
+      _ = Sprites.cmd(state.sprite, "true", [], timeout: 15_000)
 
-      true ->
-        case Sprites.list_sessions(state.sprite) do
-          {:ok, sessions} ->
-            attempt_session_attach(state, running_turn, Enum.filter(sessions, & &1.is_active))
+      case Sprites.list_sessions(state.sprite) do
+        {:ok, sessions} ->
+          # Don't filter by `is_active`. A detached session — exactly
+          # what we want to reattach to — is reported as inactive
+          # because no client is connected, but the underlying exec
+          # is alive and attach_session will resume the stream.
+          attempt_session_attach(state, running_turn, sessions)
 
-          {:error, reason} ->
-            Logger.warning("list_sessions failed during reattach: #{inspect(reason)}")
-            mark_orphan(state, running_turn, "list_sessions_failed")
-            state
-        end
+        {:error, reason} ->
+          Logger.warning("list_sessions failed during reattach: #{inspect(reason)}")
+          mark_orphan(state, running_turn, "list_sessions_failed")
+          state
+      end
     end
   end
 
@@ -409,6 +416,12 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         status: "interrupted",
         ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
+
+    # The orphaned turn was the only thing keeping the conversation in
+    # `running`. Flip it back to `idle` so the UI accurately reflects
+    # state and the user can prompt without going through wake.
+    conv = Conversations.get_conversation!(state.conversation_id)
+    {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
 
     publish_stage(state.conversation_id, "reattach", "interrupted", %{
       outcome: "turn_orphaned",
