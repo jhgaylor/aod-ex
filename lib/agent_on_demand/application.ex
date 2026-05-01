@@ -10,6 +10,13 @@ defmodule AgentOnDemand.Application do
     AgentOnDemandWeb.Plugs.RateLimit.ensure_table()
     AgentOnDemand.Telemetry.attach_default_logger()
 
+    # OpenTelemetry instrumentation. opentelemetry_phoenix + _ecto attach
+    # to the standard telemetry events those libs emit; OpentelemetryTelemetry
+    # bridges our custom :agent_on_demand events into OTel spans.
+    OpentelemetryPhoenix.setup(adapter: :bandit)
+    OpentelemetryEcto.setup([:agent_on_demand, :repo])
+    AgentOnDemand.Telemetry.attach_otel_bridge()
+
     cluster_topologies = Application.get_env(:libcluster, :topologies, [])
 
     children =

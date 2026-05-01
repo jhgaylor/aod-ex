@@ -60,6 +60,13 @@ defmodule AgentOnDemand.MixProject do
       {:open_api_spex, "~> 3.21"},
       {:libcluster, "~> 3.4"},
       {:horde, "~> 0.9.0"},
+      # OpenTelemetry stack — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT.
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry_exporter, "~> 1.8"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:opentelemetry_telemetry, "~> 1.1"},
       {:mimic, "~> 1.7", only: :test},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]

@@ -409,11 +409,23 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   defp build_sprite_env(runtime_module, agent, env, secrets) do
     (runtime_module.default_env(agent) || []) ++
       aod_callback_env() ++
+      otel_propagation_env() ++
       if(env,
         do: Enum.map(env.env_vars, fn {k, v} -> {to_string(k), to_string(v)} end),
         else: []
       ) ++
       Enum.map(secrets, fn {k, v} -> {k, v} end)
+  end
+
+  # Inject the W3C trace context as TRACEPARENT into the sprite env when
+  # we're inside an active OTel span. claude / codex / gemini / opencode
+  # all read TRACEPARENT and tag their API calls into the trace, so a
+  # turn span has every model API request as a child.
+  defp otel_propagation_env do
+    case AgentOnDemand.Telemetry.current_traceparent() do
+      nil -> []
+      tp -> [{"TRACEPARENT", tp}]
+    end
   end
 
   defp run_setup_script(_sprite, nil, _sprite_env, _conv_id), do: :ok

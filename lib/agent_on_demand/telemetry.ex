@@ -97,4 +97,36 @@ defmodule AgentOnDemand.Telemetry do
   defp stringify_value(v) when is_tuple(v), do: inspect(v)
   defp stringify_value(v) when is_function(v), do: inspect(v)
   defp stringify_value(v), do: v
+
+  @doc """
+  Stub. Placeholder for future custom-span bridging from `:telemetry` to
+  OTel via `OpentelemetryTelemetry`. Today the app gets its OTel spans
+  from `opentelemetry_phoenix` (HTTP requests) and `opentelemetry_ecto`
+  (DB queries) auto-instrumentation. Our custom `:agent_on_demand`
+  events still ship to the JSON logger via `attach_default_logger/0`,
+  and operators can attach their own OTel handler if they want
+  end-to-end coverage of provisioning steps.
+  """
+  def attach_otel_bridge do
+    :ok
+  end
+
+  @doc """
+  Returns the current span context as a W3C Trace Context (`traceparent`)
+  string, suitable for forwarding into a sprite as an env var so child
+  processes (claude / codex / etc.) tag their API calls into our trace.
+  Returns `nil` when there's no active span (or the OTel exporter is
+  configured as `:none`).
+  """
+  def current_traceparent do
+    headers = :otel_propagator_text_map.inject([])
+
+    case List.keyfind(headers, "traceparent", 0) do
+      {"traceparent", value} when is_binary(value) -> value
+      {"traceparent", value} when is_list(value) -> List.to_string(value)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
 end
