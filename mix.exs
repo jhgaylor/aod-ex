@@ -16,6 +16,10 @@ defmodule AgentOnDemand.MixProject do
         name: "aod",
         app: nil,
         embed_elixir: true
+      ],
+      dialyzer: [
+        plt_add_apps: [:ex_unit, :mix],
+        plt_file: {:no_warn, "priv/plts/agent_on_demand.plt"}
       ]
     ]
   end
@@ -68,7 +72,9 @@ defmodule AgentOnDemand.MixProject do
       {:opentelemetry_ecto, "~> 1.2"},
       {:opentelemetry_telemetry, "~> 1.1"},
       {:mimic, "~> 1.7", only: :test},
-      {:stream_data, "~> 1.1", only: [:dev, :test]}
+      {:stream_data, "~> 1.1", only: [:dev, :test]},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -84,7 +90,17 @@ defmodule AgentOnDemand.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format --check-formatted",
+        # `--mute-exit-status` so credo reports issues without failing
+        # the build. We have ~60 stylistic findings (mostly aliasing and
+        # missing @moduledocs in tiny submodules) — cleaning them up is
+        # incremental work, not a release blocker.
+        "credo --strict --mute-exit-status",
+        "test"
+      ]
     ]
   end
 end

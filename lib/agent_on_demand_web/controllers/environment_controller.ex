@@ -60,7 +60,8 @@ defmodule AgentOnDemandWeb.EnvironmentController do
     summary: "Update an environment (partial)",
     description: "Every field is optional; the server merges into the existing record.",
     parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Partial environment attributes", "application/json", Schemas.EnvironmentUpdate},
+    request_body:
+      {"Partial environment attributes", "application/json", Schemas.EnvironmentUpdate},
     responses: [
       ok: {"Environment", "application/json", Schemas.EnvironmentResponse},
       not_found: {"Not found", "application/json", Schemas.Error},

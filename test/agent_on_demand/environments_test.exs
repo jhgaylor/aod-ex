@@ -68,7 +68,9 @@ defmodule AgentOnDemand.EnvironmentsTest do
     test "decrypted_env returns plaintext map", %{env: env} do
       insert_secret(env, %{"key" => "GITHUB_TOKEN", "value" => "ghp_abc"})
       insert_secret(env, %{"key" => "API_KEY", "value" => "sk_xyz"})
-      assert %{"GITHUB_TOKEN" => "ghp_abc", "API_KEY" => "sk_xyz"} = Environments.decrypted_env(env)
+
+      assert %{"GITHUB_TOKEN" => "ghp_abc", "API_KEY" => "sk_xyz"} =
+               Environments.decrypted_env(env)
     end
 
     test "decrypted_env returns empty for env with no secrets", %{env: env} do

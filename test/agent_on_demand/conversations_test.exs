@@ -99,13 +99,17 @@ defmodule AgentOnDemand.ConversationsTest do
   describe "list_resumable_conversations" do
     test "returns idle/running with ready sandbox; excludes others" do
       ok_idle = insert_conversation(sandbox: insert_sandbox(status: "ready"), status: "idle")
-      ok_running = insert_conversation(sandbox: insert_sandbox(status: "ready"), status: "running")
+
+      ok_running =
+        insert_conversation(sandbox: insert_sandbox(status: "ready"), status: "running")
 
       _terminated =
         insert_conversation(sandbox: insert_sandbox(status: "terminated"), status: "terminated")
 
       _failed = insert_conversation(sandbox: insert_sandbox(status: "failed"), status: "failed")
-      _pending_sb = insert_conversation(sandbox: insert_sandbox(status: "pending"), status: "idle")
+
+      _pending_sb =
+        insert_conversation(sandbox: insert_sandbox(status: "pending"), status: "idle")
 
       ids = Conversations.list_resumable_conversations() |> Enum.map(& &1.id)
       assert ok_idle.id in ids
@@ -166,7 +170,8 @@ defmodule AgentOnDemand.ConversationsTest do
     # *call* is enough; the ConversationServer's own behavior is tested
     # in conversation_server_test.exs.
     defp stub_dyn_supervisor do
-      stub(Horde.DynamicSupervisor, :start_child, fn AgentOnDemand.ConversationSupervisor, _spec ->
+      stub(Horde.DynamicSupervisor, :start_child, fn AgentOnDemand.ConversationSupervisor,
+                                                     _spec ->
         {:ok, self()}
       end)
     end

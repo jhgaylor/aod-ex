@@ -64,7 +64,9 @@ defmodule AgentOnDemand.Environments.EnvironmentTest do
       cs =
         Environment.changeset(%Environment{}, %{
           name: "x",
-          repositories: [%{"url" => "https://github.com/foo/bar", "mount_path" => "relative/path"}]
+          repositories: [
+            %{"url" => "https://github.com/foo/bar", "mount_path" => "relative/path"}
+          ]
         })
 
       refute cs.valid?
@@ -72,7 +74,10 @@ defmodule AgentOnDemand.Environments.EnvironmentTest do
 
     test "enforces unique name" do
       insert_env(%{"name" => "shared"})
-      assert {:error, cs} = AgentOnDemand.Environments.create_environment(env_attrs(%{"name" => "shared"}))
+
+      assert {:error, cs} =
+               AgentOnDemand.Environments.create_environment(env_attrs(%{"name" => "shared"}))
+
       assert "has already been taken" in errors_on(cs).name
     end
 

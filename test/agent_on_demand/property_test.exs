@@ -20,14 +20,14 @@ defmodule AgentOnDemand.PropertyTest do
 
   describe "Crypto round-trip" do
     property "every plaintext decrypts back to itself" do
-      check all plaintext <- StreamData.binary(min_length: 0, max_length: 4096) do
+      check all(plaintext <- StreamData.binary(min_length: 0, max_length: 4096)) do
         ct = Crypto.encrypt(plaintext)
         assert {:ok, ^plaintext} = Crypto.decrypt(ct)
       end
     end
 
     property "two encryptions of the same plaintext have different ciphertext" do
-      check all plaintext <- StreamData.binary(min_length: 1, max_length: 64) do
+      check all(plaintext <- StreamData.binary(min_length: 1, max_length: 64)) do
         a = Crypto.encrypt(plaintext)
         b = Crypto.encrypt(plaintext)
         assert a != b
@@ -35,7 +35,7 @@ defmodule AgentOnDemand.PropertyTest do
     end
 
     property "tampering with body bytes makes decrypt fail" do
-      check all plaintext <- StreamData.binary(min_length: 1, max_length: 64) do
+      check all(plaintext <- StreamData.binary(min_length: 1, max_length: 64)) do
         ct = Crypto.encrypt(plaintext)
         <<head::binary-12, tag::binary-16, body::binary>> = ct
         flipped = :crypto.exor(body, :binary.copy(<<1>>, byte_size(body)))
@@ -49,7 +49,7 @@ defmodule AgentOnDemand.PropertyTest do
       # Skip control characters that bash interprets specially.
       printable = StreamData.string(:printable, min_length: 0, max_length: 64)
 
-      check all s <- printable do
+      check all(s <- printable) do
         quoted = Provisioning.shell_quote(s)
         # bash -lc 'echo <quoted>' should print exactly s + a newline
         {output, 0} = System.cmd("bash", ["-lc", "echo " <> quoted])
@@ -58,7 +58,7 @@ defmodule AgentOnDemand.PropertyTest do
     end
 
     property "always wraps in single quotes" do
-      check all s <- StreamData.string(:ascii, min_length: 0, max_length: 32) do
+      check all(s <- StreamData.string(:ascii, min_length: 0, max_length: 32)) do
         quoted = Provisioning.shell_quote(s)
         assert String.starts_with?(quoted, "'")
         assert String.ends_with?(quoted, "'")
@@ -75,9 +75,11 @@ defmodule AgentOnDemand.PropertyTest do
       surroundings =
         StreamData.string(:printable, min_length: 0, max_length: 32)
 
-      check all token <- token_chars,
-                prefix <- surroundings,
-                suffix <- surroundings do
+      check all(
+              token <- token_chars,
+              prefix <- surroundings,
+              suffix <- surroundings
+            ) do
         input = "#{prefix}https://x-access-token:#{token}@github.com/foo/bar#{suffix}"
         scrubbed = Provisioning.scrub_token(input)
         refute scrubbed =~ token
@@ -86,8 +88,10 @@ defmodule AgentOnDemand.PropertyTest do
     end
 
     property "is a no-op on inputs without an x-access-token URL" do
-      check all s <- StreamData.string(:printable, min_length: 0, max_length: 200),
-                not String.contains?(s, "x-access-token:") do
+      check all(
+              s <- StreamData.string(:printable, min_length: 0, max_length: 200),
+              not String.contains?(s, "x-access-token:")
+            ) do
         assert Provisioning.scrub_token(s) == s
       end
     end
@@ -95,15 +99,19 @@ defmodule AgentOnDemand.PropertyTest do
 
   describe "Provisioning.inject_token" do
     property "non-https URLs come back unchanged" do
-      check all url <- StreamData.member_of(["git@github.com:foo/bar", "ssh://x", "http://y"]),
-                token <- StreamData.string(:alphanumeric, min_length: 1, max_length: 32) do
+      check all(
+              url <- StreamData.member_of(["git@github.com:foo/bar", "ssh://x", "http://y"]),
+              token <- StreamData.string(:alphanumeric, min_length: 1, max_length: 32)
+            ) do
         assert Provisioning.inject_token(url, "K", %{"K" => token}) == url
       end
     end
 
     property "https URLs get the token inlined exactly once" do
-      check all path <- StreamData.string(:alphanumeric, min_length: 1, max_length: 16),
-                token <- StreamData.string(:alphanumeric, min_length: 8, max_length: 64) do
+      check all(
+              path <- StreamData.string(:alphanumeric, min_length: 1, max_length: 16),
+              token <- StreamData.string(:alphanumeric, min_length: 8, max_length: 64)
+            ) do
         url = "https://github.com/#{path}"
         out = Provisioning.inject_token(url, "K", %{"K" => token})
         assert out == "https://x-access-token:#{token}@github.com/#{path}"
@@ -119,11 +127,13 @@ defmodule AgentOnDemand.PropertyTest do
       event_gen = StreamData.string(:alphanumeric, min_length: 1, max_length: 16)
       data_gen = StreamData.string(:printable, min_length: 0, max_length: 200)
 
-      check all id <- id_gen,
-                event <- event_gen,
-                data <- data_gen,
-                # SSE forbids \n in data fields; strip
-                data = String.replace(data, "\n", " ") do
+      check all(
+              id <- id_gen,
+              event <- event_gen,
+              data <- data_gen,
+              # SSE forbids \n in data fields; strip
+              data = String.replace(data, "\n", " ")
+            ) do
         chunk = "id: #{id}\nevent: #{event}\ndata: #{data}\n\n"
         assert {[parsed], ""} = Sse.feed(chunk)
         assert parsed.id == id
@@ -132,9 +142,11 @@ defmodule AgentOnDemand.PropertyTest do
     end
 
     property "splitting an event across feeds still recovers it" do
-      check all id <- StreamData.integer(0..1000),
-                # split anywhere INSIDE the event (before the \n\n terminator)
-                split_at <- StreamData.integer(1..28) do
+      check all(
+              id <- StreamData.integer(0..1000),
+              # split anywhere INSIDE the event (before the \n\n terminator)
+              split_at <- StreamData.integer(1..28)
+            ) do
         full = "id: #{id}\nevent: x\ndata: {}\n\n"
         # Pick a split that's strictly before the terminator so the first
         # call is guaranteed to leave leftover.

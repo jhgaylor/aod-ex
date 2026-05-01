@@ -37,6 +37,7 @@ defmodule AgentOnDemandWeb.EnvironmentControllerTest do
 
       assert env["name"] == payload["name"]
       assert env["packages"] == %{"apt" => ["jq"]}
+
       assert env["repositories"] == [
                %{"url" => "https://github.com/foo/bar", "mount_path" => "/workspace/bar"}
              ]
@@ -44,7 +45,10 @@ defmodule AgentOnDemandWeb.EnvironmentControllerTest do
 
     test "422 on invalid name", %{conn: conn} do
       response =
-        conn |> authed() |> post_json(~p"/api/environments", %{"name" => ""}) |> json_response(422)
+        conn
+        |> authed()
+        |> post_json(~p"/api/environments", %{"name" => ""})
+        |> json_response(422)
 
       assert response["errors"]
     end

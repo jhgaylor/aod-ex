@@ -151,7 +151,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         write_runtime_config(sprite, state.runtime_module, agent)
         AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
 
-        with :ok <- run_provisioning_pipeline(sprite, env, sprite_env, secrets, state.conversation_id) do
+        with :ok <-
+               run_provisioning_pipeline(sprite, env, sprite_env, secrets, state.conversation_id) do
           {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
           publish_stage(state.conversation_id, "provision", "done")
 
@@ -251,8 +252,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp maybe_create_checkpoint_async(_sprite, nil), do: :ok
-  defp maybe_create_checkpoint_async(_sprite, %{checkpoint_id: id}) when is_binary(id) and id != "",
-    do: :ok
+
+  defp maybe_create_checkpoint_async(_sprite, %{checkpoint_id: id})
+       when is_binary(id) and id != "",
+       do: :ok
 
   defp maybe_create_checkpoint_async(sprite, %AgentOnDemand.Environments.Environment{} = env) do
     if checkpoint_creation_enabled?() do

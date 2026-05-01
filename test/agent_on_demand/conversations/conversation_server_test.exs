@@ -68,7 +68,10 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
       assert conv_after.status == "failed"
     end
 
-    test "setup_script non-zero exit → provision failed, sprite destroyed", %{agent: agent, env: env} do
+    test "setup_script non-zero exit → provision failed, sprite destroyed", %{
+      agent: agent,
+      env: env
+    } do
       {:ok, _} =
         AgentOnDemand.Environments.update_environment(env, %{
           "setup_script" => "false"
@@ -80,7 +83,11 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
       end)
 
       destroyed = self()
-      stub(Sprites, :destroy, fn _sprite -> send(destroyed, :destroyed); :ok end)
+
+      stub(Sprites, :destroy, fn _sprite ->
+        send(destroyed, :destroyed)
+        :ok
+      end)
 
       sb = insert_sandbox(status: "pending")
       conv = insert_conversation(sandbox: sb, agent: agent, status: "pending")
@@ -225,6 +232,7 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
     if Process.alive?(pid) do
       ref = Process.monitor(pid)
       GenServer.stop(pid, :normal, 1_000)
+
       receive do
         {:DOWN, ^ref, :process, ^pid, _} -> :ok
       after
@@ -244,7 +252,9 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
           nil
 
         System.monotonic_time(:millisecond) > deadline ->
-          flunk("expected sandbox #{sandbox_id} to reach #{target_status}, got #{inspect(sb && sb.status)}")
+          flunk(
+            "expected sandbox #{sandbox_id} to reach #{target_status}, got #{inspect(sb && sb.status)}"
+          )
 
         true ->
           Process.sleep(20)

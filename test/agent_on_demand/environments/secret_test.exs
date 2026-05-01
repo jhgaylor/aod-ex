@@ -68,7 +68,9 @@ defmodule AgentOnDemand.Environments.SecretTest do
     test "unique on (environment_id, key)", %{env: env} do
       insert_secret(env, %{"key" => "DUP"})
       # Direct insert (not upsert) to assert the constraint fires.
-      cs = Secret.changeset(%Secret{}, %{"key" => "DUP", "value" => "v", "environment_id" => env.id})
+      cs =
+        Secret.changeset(%Secret{}, %{"key" => "DUP", "value" => "v", "environment_id" => env.id})
+
       assert {:error, %{errors: errors}} = AgentOnDemand.Repo.insert(cs)
       assert Keyword.has_key?(errors, :environment_id) or Keyword.has_key?(errors, :key)
     end

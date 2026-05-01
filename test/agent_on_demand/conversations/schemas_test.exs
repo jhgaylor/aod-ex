@@ -102,7 +102,15 @@ defmodule AgentOnDemand.Conversations.SchemasTest do
 
     test "(conversation_id, turn_number) is unique", %{conv: conv} do
       insert_turn(conv, turn_number: 1)
-      cs = Turn.changeset(%Turn{}, %{conversation_id: conv.id, turn_number: 1, prompt: "p", status: "pending"})
+
+      cs =
+        Turn.changeset(%Turn{}, %{
+          conversation_id: conv.id,
+          turn_number: 1,
+          prompt: "p",
+          status: "pending"
+        })
+
       assert {:error, _} = Repo.insert(cs)
     end
   end

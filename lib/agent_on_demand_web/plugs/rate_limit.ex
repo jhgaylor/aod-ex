@@ -36,7 +36,13 @@ defmodule AgentOnDemandWeb.Plugs.RateLimit do
   def ensure_table do
     case :ets.whereis(@table) do
       :undefined ->
-        :ets.new(@table, [:set, :public, :named_table, read_concurrency: true, write_concurrency: true])
+        :ets.new(@table, [
+          :set,
+          :public,
+          :named_table,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
 
       _ref ->
         :ok

@@ -11,7 +11,14 @@ defmodule AgentOnDemand.Environments.Environment do
 
   # Fields that affect provisioning. Changing any of these invalidates
   # the env's sprite checkpoint — the warm-start state would be wrong.
-  @warm_start_fields [:packages, :env_vars, :setup_script, :networking_type, :networking_config, :repositories]
+  @warm_start_fields [
+    :packages,
+    :env_vars,
+    :setup_script,
+    :networking_type,
+    :networking_config,
+    :repositories
+  ]
 
   schema "environments" do
     field :name, :string
