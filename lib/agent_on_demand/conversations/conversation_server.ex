@@ -119,6 +119,25 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     secrets = if env, do: Environments.decrypted_env(env), else: %{}
     state = %{state | runtime_session_id: conv.runtime_session_id}
 
+    case sandbox.status do
+      "ready" ->
+        # The sprite already exists at sprites.dev and was fully provisioned
+        # in a previous BEAM lifetime. Reattach instead of recreating.
+        reattach(state, conv, sandbox, agent, env, secrets)
+
+      s when s in ["pending", "starting"] ->
+        fresh_provision(state, conv, sandbox, agent, env, secrets)
+
+      terminal when terminal in ["terminated", "failed"] ->
+        Logger.warning("ConversationServer started for terminal conv #{conv.id} (#{terminal})")
+        {:stop, :normal, state}
+
+      _ ->
+        fresh_provision(state, conv, sandbox, agent, env, secrets)
+    end
+  end
+
+  defp fresh_provision(state, conv, sandbox, agent, env, secrets) do
     {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
     publish_stage(state.conversation_id, "provision", "started")
 
@@ -127,16 +146,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         skill_names = (agent && agent.skills) || []
         AgentOnDemand.SpriteSkills.mount(sprite, skill_names)
 
-        sprite_env =
-          (state.runtime_module.default_env(agent) || []) ++
-            aod_callback_env() ++
-            if(env,
-              do: Enum.map(env.env_vars, fn {k, v} -> {to_string(k), to_string(v)} end),
-              else: []
-            ) ++
-            Enum.map(secrets, fn {k, v} -> {k, v} end)
+        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
 
-        # Write runtime-specific config (e.g. claude's ~/.claude.json for MCP).
         write_runtime_config(sprite, state.runtime_module, agent)
 
         with :ok <-
@@ -190,6 +201,140 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
     end
+  end
+
+  defp reattach(state, _conv, sandbox, agent, env, secrets) do
+    publish_stage(state.conversation_id, "reattach", "started", %{
+      sprite_name: sandbox.sprite_name
+    })
+
+    client = SpritesClient.get!()
+
+    case Sprites.get_sprite(client, sandbox.sprite_name) do
+      {:ok, _info} ->
+        sprite = Sprites.sprite(client, sandbox.sprite_name)
+        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
+
+        new_state = %{state | sprite: sprite, sprite_env: sprite_env}
+        new_state = reattach_running_turn(new_state)
+
+        publish_stage(state.conversation_id, "reattach", "done")
+
+        case state.initial_prompt do
+          nil -> {:noreply, new_state}
+          p -> {:noreply, kick_turn(new_state, p, agent)}
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "reattach failed for sprite #{sandbox.sprite_name}: #{inspect(reason)} — marking sandbox failed"
+        )
+
+        publish_stage(state.conversation_id, "reattach", "failed", %{reason: inspect(reason)})
+
+        {:ok, _} =
+          Conversations.update_sandbox(sandbox, %{
+            status: "failed",
+            terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+          })
+
+        # Don't mark the conversation failed — the user can still send a
+        # prompt and auto-wake will spin a fresh sandbox.
+        {:stop, :normal, state}
+    end
+  end
+
+  # If a turn is marked `running` in the DB and the sprite has an active
+  # detachable session, reattach to it: the WebSocket reconnects, stdout
+  # continues streaming where it left off, and the eventual `:exit` message
+  # closes the turn cleanly. If no active session is found, the command
+  # finished while the BEAM was down — we don't know the exit code, so
+  # mark the orphaned turn `interrupted` so the user gets a clear signal.
+  defp reattach_running_turn(state) do
+    running_turn = find_running_turn(state.conversation_id)
+
+    cond do
+      is_nil(running_turn) ->
+        # No DB record of a running turn; nothing to reattach to.
+        state
+
+      true ->
+        case Sprites.list_sessions(state.sprite) do
+          {:ok, sessions} ->
+            attempt_session_attach(state, running_turn, Enum.filter(sessions, & &1.is_active))
+
+          {:error, reason} ->
+            Logger.warning("list_sessions failed during reattach: #{inspect(reason)}")
+            mark_orphan(state, running_turn, "list_sessions_failed")
+            state
+        end
+    end
+  end
+
+  defp attempt_session_attach(state, running_turn, []) do
+    mark_orphan(state, running_turn, "no_active_session")
+    state
+  end
+
+  defp attempt_session_attach(state, running_turn, [session | _]) do
+    case Sprites.attach_session(state.sprite, session.id, owner: self(), stdin: true) do
+      {:ok, command} ->
+        publish_stage(state.conversation_id, "reattach", "session_attached", %{
+          session_id: session.id,
+          turn_id: running_turn.id,
+          turn_number: running_turn.turn_number
+        })
+
+        conv = Conversations.get_conversation!(state.conversation_id)
+        {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
+
+        %{
+          state
+          | current_command: command,
+            current_command_ref: command.ref,
+            current_turn: running_turn
+        }
+
+      {:error, reason} ->
+        Logger.warning("attach_session failed: #{inspect(reason)}")
+        mark_orphan(state, running_turn, "attach_failed")
+        state
+    end
+  end
+
+  defp mark_orphan(state, running_turn, why) do
+    {:ok, _} =
+      Conversations.update_turn(running_turn, %{
+        status: "interrupted",
+        ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    publish_stage(state.conversation_id, "reattach", "turn_orphaned", %{
+      turn_id: running_turn.id,
+      turn_number: running_turn.turn_number,
+      reason: why
+    })
+  end
+
+  defp find_running_turn(conv_id) do
+    import Ecto.Query
+
+    AgentOnDemand.Repo.one(
+      from t in AgentOnDemand.Conversations.Turn,
+        where: t.conversation_id == ^conv_id and t.status == "running",
+        order_by: [desc: t.turn_number],
+        limit: 1
+    )
+  end
+
+  defp build_sprite_env(runtime_module, agent, env, secrets) do
+    (runtime_module.default_env(agent) || []) ++
+      aod_callback_env() ++
+      if(env,
+        do: Enum.map(env.env_vars, fn {k, v} -> {to_string(k), to_string(v)} end),
+        else: []
+      ) ++
+      Enum.map(secrets, fn {k, v} -> {k, v} end)
   end
 
   defp run_setup_script(_sprite, nil, _sprite_env, _conv_id), do: :ok
@@ -388,7 +533,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     case Sprites.spawn(state.sprite, cmd, args,
            env: state.sprite_env,
            owner: self(),
-           stdin: true
+           stdin: true,
+           # Detachable: the sprite-side session survives a WebSocket
+           # disconnect, so a BEAM restart can list_sessions + reattach.
+           detachable: true
          ) do
       {:ok, command} ->
         :ok = Sprites.write(command, prompt)

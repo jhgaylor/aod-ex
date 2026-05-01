@@ -7,6 +7,8 @@ defmodule AgentOnDemandWeb.SecretController do
 
   action_fallback AgentOnDemandWeb.FallbackController
 
+  plug OpenApiSpex.Plug.CastAndValidate, replace_params: false
+
   tags(["Secrets"])
 
   operation(:index,

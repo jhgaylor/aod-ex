@@ -8,6 +8,8 @@ defmodule AgentOnDemandWeb.ConversationController do
 
   action_fallback AgentOnDemandWeb.FallbackController
 
+  plug OpenApiSpex.Plug.CastAndValidate, replace_params: false
+
   tags(["Conversations"])
 
   operation(:index,
@@ -175,9 +177,11 @@ defmodule AgentOnDemandWeb.ConversationController do
       conversation_id: [in: :path, type: :string, required: true],
       "Last-Event-ID": [
         in: :header,
-        type: :integer,
+        type: :string,
         required: false,
-        description: "Resume after this event id."
+        description:
+          "Resume after this event id (integer as string). " <>
+            "Missing or unparseable values are treated as 0."
       ]
     ],
     responses: [

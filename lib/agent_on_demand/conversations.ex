@@ -42,6 +42,21 @@ defmodule AgentOnDemand.Conversations do
     )
   end
 
+  @doc """
+  Conversations whose `ConversationServer` would have been running at the
+  time of a clean BEAM stop: status `idle` or `running`, with a fully-
+  provisioned (`ready`) sandbox.
+  """
+  def list_resumable_conversations do
+    Repo.all(
+      from c in Conversation,
+        join: s in Sandbox,
+        on: s.id == c.sandbox_id,
+        where: c.status in ["idle", "running"] and s.status == "ready",
+        preload: [:sandbox]
+    )
+  end
+
   def get_conversation(id) do
     Conversation
     |> Repo.get(id)
@@ -107,6 +122,26 @@ defmodule AgentOnDemand.Conversations do
     turn
     |> Turn.changeset(attrs)
     |> Repo.update()
+  end
+
+  @doc """
+  Mark any `running` turns for the given conversation as `interrupted`.
+  Used during reattach: a BEAM restart orphaned whatever turn was in
+  flight, and we can't know its outcome — mark it so the user gets a
+  clear signal instead of a permanently-stuck status.
+  """
+  def mark_orphaned_turns_interrupted(conversation_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {n, _} =
+      Repo.update_all(
+        from(t in Turn,
+          where: t.conversation_id == ^conversation_id and t.status == "running"
+        ),
+        set: [status: "interrupted", ended_at: now]
+      )
+
+    n
   end
 
   # ── log events ────────────────────────────────────────────────────────────
@@ -197,21 +232,78 @@ defmodule AgentOnDemand.Conversations do
 
   @doc """
   Resume a conversation whose ConversationServer is gone (e.g. after a
-  BEAM restart). Provisions a fresh sandbox + sprite, marks the old
-  sandbox terminated, points the conversation at the new sandbox, and
-  starts a ConversationServer that uses the persisted runtime_session_id
-  so the runtime CLI's `--resume` picks up the chat where it left off.
+  BEAM restart, or in the gap between Rehydrator runs).
+
+  Strategy:
+  1. If the existing sandbox is `ready` and the sprite is still alive at
+     sprites.dev, start a fresh `ConversationServer` pointing at it. The
+     server will go through reattach mode and pick up any running
+     detachable session.
+  2. Otherwise, provision a fresh sprite, mark the old sandbox
+     terminated, and start the server pointing at the new sandbox.
+     `claude --resume` keeps the chat via the persisted
+     `runtime_session_id`.
 
   Returns `{:error, :gone}` if the conversation is in a terminal status
-  (`terminated`, `failed`, or `completed`) — those don't auto-resume.
+  (`terminated`, `failed`, `completed`) — those don't auto-resume.
   """
   def wake_conversation(conv_id, initial_prompt \\ nil) do
     with %Conversation{} = conv <- get_conversation(conv_id) || {:error, :not_found},
          :ok <- assert_resumable(conv),
          %Agents.Agent{} = agent <-
            (conv.agent_id && Agents.get_agent(conv.agent_id)) || {:error, :no_agent},
-         {:ok, runtime_module} <- AgentOnDemand.Runtimes.for_runtime(conv.runtime),
-         {:ok, new_sandbox} <-
+         {:ok, runtime_module} <- AgentOnDemand.Runtimes.for_runtime(conv.runtime) do
+      case maybe_reuse_sandbox(conv) do
+        {:reuse, sandbox_id} ->
+          start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt)
+
+        :create_new ->
+          create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = err -> err
+    end
+  end
+
+  # Probe the existing sandbox: if it's `ready` and sprites.dev confirms
+  # the sprite still exists, we can reattach without provisioning a new
+  # one. Otherwise, fall through to creating a fresh sandbox.
+  defp maybe_reuse_sandbox(%Conversation{sandbox_id: nil}), do: :create_new
+
+  defp maybe_reuse_sandbox(%Conversation{sandbox_id: sandbox_id}) do
+    case get_sandbox(sandbox_id) do
+      %{status: "ready", sprite_name: name} when is_binary(name) ->
+        client = AgentOnDemand.SpritesClient.get!()
+
+        case Sprites.get_sprite(client, name) do
+          {:ok, _info} -> {:reuse, sandbox_id}
+          _ -> :create_new
+        end
+
+      _ ->
+        :create_new
+    end
+  end
+
+  defp start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
+    with {:ok, _pid} <-
+           DynamicSupervisor.start_child(
+             AgentOnDemand.ConversationSupervisor,
+             {ConversationServer,
+              [
+                conversation_id: conv.id,
+                sandbox_id: sandbox_id,
+                runtime_module: runtime_module,
+                initial_prompt: initial_prompt
+              ]}
+           ) do
+      {:ok, get_conversation!(conv.id)}
+    end
+  end
+
+  defp create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt) do
+    with {:ok, new_sandbox} <-
            create_sandbox(%{
              environment_id: agent.environment_id,
              sprite_name: "conv-#{short_id()}",
@@ -219,22 +311,8 @@ defmodule AgentOnDemand.Conversations do
            }),
          _ <- mark_old_sandbox_terminated(conv.sandbox_id),
          {:ok, conv} <-
-           update_conversation(conv, %{sandbox_id: new_sandbox.id, status: "pending"}),
-         {:ok, _pid} <-
-           DynamicSupervisor.start_child(
-             AgentOnDemand.ConversationSupervisor,
-             {ConversationServer,
-              [
-                conversation_id: conv.id,
-                sandbox_id: new_sandbox.id,
-                runtime_module: runtime_module,
-                initial_prompt: initial_prompt
-              ]}
-           ) do
-      {:ok, get_conversation!(conv.id)}
-    else
-      nil -> {:error, :not_found}
-      {:error, _} = err -> err
+           update_conversation(conv, %{sandbox_id: new_sandbox.id, status: "pending"}) do
+      start_conversation_server(conv, new_sandbox.id, runtime_module, initial_prompt)
     end
   end
 

@@ -19,10 +19,21 @@ defmodule AgentOnDemand.Application do
       AgentOnDemandWeb.Endpoint
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: AgentOnDemand.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, sup} ->
+        # Rehydrate ConversationServers for non-terminal conversations whose
+        # sprite was fully provisioned at the last clean stop. Done in a
+        # detached process so a failure here doesn't block app boot.
+        unless skip_rehydrate?(),
+          do: Task.start(fn -> AgentOnDemand.Conversations.Rehydrator.run() end)
+
+        {:ok, sup}
+
+      err ->
+        err
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration
@@ -36,5 +47,12 @@ defmodule AgentOnDemand.Application do
   defp skip_migrations?() do
     # By default, sqlite migrations are run when using a release
     System.get_env("RELEASE_NAME") == nil
+  end
+
+  # Tests opt out via config; everything else (mix phx.server, releases,
+  # iex -S mix phx.server) should rehydrate so we recover from a clean
+  # BEAM stop.
+  defp skip_rehydrate? do
+    Application.get_env(:agent_on_demand, :skip_rehydrate, false)
   end
 end

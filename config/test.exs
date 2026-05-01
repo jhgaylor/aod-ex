@@ -17,6 +17,10 @@ config :agent_on_demand, AgentOnDemandWeb.Endpoint,
   secret_key_base: "c4S1HEBb+LhhInAgMbEJdXVBSKK65S7Mk9oeXrPTn65slnwVQU5zFqCT3p2wqWaR",
   server: false
 
+# Don't rehydrate ConversationServers in tests — they'd hit the real
+# Sprites API. Tests start servers explicitly with mocked sprites.
+config :agent_on_demand, :skip_rehydrate, true
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
