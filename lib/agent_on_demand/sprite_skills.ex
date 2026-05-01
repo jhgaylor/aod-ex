@@ -20,12 +20,10 @@ defmodule AgentOnDemand.SpriteSkills do
   @claude_skills_dir "/home/sprite/.claude/skills"
   @codex_agents_md "/home/sprite/.codex/AGENTS.md"
   # gemini runs with HOME=/tmp (so `mv .gemini/projects.json.tmp ...`
-  # actually works); its global GEMINI.md must live there.  Mirror to
-  # /home/sprite for any out-of-spawn `gemini` invocations.
-  @gemini_md_paths [
-    "/tmp/.gemini/GEMINI.md",
-    "/home/sprite/.gemini/GEMINI.md"
-  ]
+  # actually works); its global GEMINI.md must live there. We don't
+  # mirror to /home/sprite because gemini reads BOTH and re-registers
+  # everything twice on startup.
+  @gemini_md_path "/tmp/.gemini/GEMINI.md"
 
   @always_mounted ["aod"]
 
@@ -67,7 +65,7 @@ defmodule AgentOnDemand.SpriteSkills do
 
       "gemini" ->
         mount_claude_format(fs, target)
-        Enum.each(@gemini_md_paths, &write_concatenated(fs, &1, target))
+        write_concatenated(fs, @gemini_md_path, target)
 
       _ ->
         mount_claude_format(fs, target)

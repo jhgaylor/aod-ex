@@ -87,6 +87,11 @@ defmodule AgentOnDemand.RuntimesTest do
       assert "stream-json" in rest
     end
 
+    test "build_command opts carry the workspace dir" do
+      {"gemini", _args, opts} = Gemini.build_command(nil, "p", :run, nil, [])
+      assert opts[:dir] == "/tmp/gemini-workspace"
+    end
+
     test "passes --allowed-mcp-server-names when agent has mcp_servers" do
       agent = %{mcp_servers: %{"everything" => %{}, "time" => %{}}}
       {"gemini", args, _} = Gemini.build_command(agent, "p", :run, nil, [])
@@ -225,7 +230,7 @@ defmodule AgentOnDemand.RuntimesTest do
       assert toml =~ ~s(env = { TZ = "UTC" })
     end
 
-    test "Gemini writes ~/.gemini/settings.json with mcpServers" do
+    test "Gemini writes /tmp/.gemini/settings.json with mcpServers (single write)" do
       test_pid = self()
 
       stub(Sprites.Filesystem, :write, fn _, path, payload ->
@@ -234,7 +239,11 @@ defmodule AgentOnDemand.RuntimesTest do
       end)
 
       Gemini.write_config(:sprite, %{mcp_servers: @mcp})
-      assert_received {:wrote, "/home/sprite/.gemini/settings.json", payload}
+      # Lands at /tmp because gemini runs with HOME=/tmp; we deliberately
+      # don't mirror to /home/sprite because gemini reads both and would
+      # register every MCP server twice.
+      assert_received {:wrote, "/tmp/.gemini/settings.json", payload}
+      refute_received {:wrote, _, _}
       assert Jason.decode!(payload) == %{"mcpServers" => @mcp}
     end
 

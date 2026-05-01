@@ -49,7 +49,23 @@ defmodule AgentOnDemand.Runtimes do
               sprite_env :: [{String.t(), String.t()}]
             ) :: :ok | {:error, term()}
 
-  @optional_callbacks default_env: 1, write_config: 2, prepare_sprite: 3
+  @doc """
+  Optionally return a list of substring patterns that identify
+  uninteresting stderr lines emitted by the runtime CLI (startup
+  banners, MCP refresh chatter, etc.). Any stderr line *containing*
+  one of these substrings is dropped before being persisted as a
+  log event. No-op by default.
+
+  Real errors won't match — gemini-cli prints things like "Failed to
+  generate content..." which we want to keep — so this is a
+  best-effort prettifier, not a security boundary.
+  """
+  @callback stderr_noise_patterns() :: [String.t()]
+
+  @optional_callbacks default_env: 1,
+                      write_config: 2,
+                      prepare_sprite: 3,
+                      stderr_noise_patterns: 0
 
   @runtime_modules %{
     "claude" => AgentOnDemand.Runtimes.Claude,

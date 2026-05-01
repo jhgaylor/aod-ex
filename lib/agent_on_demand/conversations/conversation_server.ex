@@ -594,7 +594,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   def handle_info({:stderr, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
-    {:noreply, log_with_replay_skip(state, "stderr", data)}
+    case strip_noise(state.runtime_module, data) do
+      :all_noise -> {:noreply, state}
+      cleaned -> {:noreply, log_with_replay_skip(state, "stderr", cleaned)}
+    end
   end
 
   def handle_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
@@ -706,6 +709,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     # runtimes default to no PTY.
     use_tty? = Keyword.get(build_opts, :tty?, false)
 
+    # opencode + gemini set this to point at a workspace dir that has a
+    # local .git (so neither runtime trips on /home/sprite's perms).
+    cwd = Keyword.get(build_opts, :dir)
+
     publish_stage(state.conversation_id, "turn", "started", %{
       turn_id: turn.id,
       turn_number: turn_number,
@@ -732,15 +739,19 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     previous_span = OpenTelemetry.Tracer.set_current_span(turn_span)
 
     try do
-      case Sprites.spawn(state.sprite, cmd, args,
-             env: state.sprite_env,
-             owner: self(),
-             stdin: use_stdin?,
-             tty: use_tty?,
-             # Detachable: the sprite-side session survives a WebSocket
-             # disconnect, so a BEAM restart can list_sessions + reattach.
-             detachable: true
-           ) do
+      spawn_opts =
+        [
+          env: state.sprite_env,
+          owner: self(),
+          stdin: use_stdin?,
+          tty: use_tty?,
+          # Detachable: the sprite-side session survives a WebSocket
+          # disconnect, so a BEAM restart can list_sessions + reattach.
+          detachable: true
+        ]
+        |> then(&if cwd, do: Keyword.put(&1, :dir, cwd), else: &1)
+
+      case Sprites.spawn(state.sprite, cmd, args, spawn_opts) do
         {:ok, command} ->
           if use_stdin? do
             :ok = Sprites.write(command, prompt)
@@ -824,6 +835,51 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       "conv:#{state.conversation_id}",
       {:log_event, event}
     )
+  end
+
+  # Drop stderr lines that match the runtime's `stderr_noise_patterns/0`
+  # list (operational chatter — banners, MCP refresh logs, etc.). Lines
+  # are split on newlines so a chunk that mixes noise + real content
+  # only loses the noisy lines.
+  defp strip_noise(runtime_module, data) do
+    Code.ensure_loaded(runtime_module)
+
+    if function_exported?(runtime_module, :stderr_noise_patterns, 0) do
+      patterns = runtime_module.stderr_noise_patterns()
+      apply_noise_filter(data, patterns)
+    else
+      data
+    end
+  end
+
+  defp apply_noise_filter(data, []), do: data
+
+  defp apply_noise_filter(data, patterns) when is_binary(data) do
+    {trailer, full_lines} =
+      data
+      |> String.split("\n")
+      |> Enum.reverse()
+      |> case do
+        [last | rest] -> {last, Enum.reverse(rest)}
+      end
+
+    kept =
+      full_lines
+      |> Enum.reject(fn line ->
+        trimmed = String.trim(line)
+        # Drop standalone JSON closers/openers that are left over when
+        # we filter the surrounding multi-line block (e.g. gemini's
+        # `Capabilities: { ... }` body — the body lines match patterns
+        # but the trailing `}` doesn't on its own).
+        trimmed in ["{", "}"] or
+          Enum.any?(patterns, &String.contains?(line, &1))
+      end)
+
+    case {kept, trailer} do
+      {[], ""} -> :all_noise
+      {kept, ""} -> Enum.join(kept, "\n") <> "\n"
+      {kept, trailer} -> Enum.join(kept ++ [trailer], "\n")
+    end
   end
 
   # Drop replayed bytes before persisting. After reattach, sprites replays
