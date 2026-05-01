@@ -17,6 +17,7 @@ defmodule AgentOnDemandWeb.Layouts do
             <.nav_link href={~p"/"} label="Conversations" current={@current_path}/>
             <.nav_link href={~p"/agents"} label="Agents" current={@current_path}/>
             <.nav_link href={~p"/environments"} label="Environments" current={@current_path}/>
+            <.nav_link href={~p"/audit"} label="Audit log" current={@current_path}/>
           </nav>
           <div class="p-2 border-t border-zinc-200 mt-4 text-xs text-zinc-500">
             <a href={~p"/logout"} data-method="post" class="hover:text-zinc-800">Sign out</a>

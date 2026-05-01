@@ -10,6 +10,7 @@ defmodule AgentOnDemandWeb.Router do
     plug :accepts, ["json"]
     plug OpenApiSpex.Plug.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
     plug AgentOnDemandWeb.Plugs.AdminAuth
+    plug AgentOnDemandWeb.Plugs.Audit
   end
 
   pipeline :browser do
@@ -66,6 +67,7 @@ defmodule AgentOnDemandWeb.Router do
       live "/environments", EnvironmentsLive.Index, :index
       live "/environments/new", EnvironmentsLive.Form, :new
       live "/environments/:id/edit", EnvironmentsLive.Form, :edit
+      live "/audit", AuditLive.Index, :index
     end
   end
 
