@@ -1,5 +1,7 @@
 # Agent on Demand (Elixir)
 
+[![CI](https://github.com/ravi-hq/agent-on-demand-ex/actions/workflows/ci.yml/badge.svg)](https://github.com/ravi-hq/agent-on-demand-ex/actions/workflows/ci.yml)
+
 A REST API for spawning AI coding agents (claude, plus codex/gemini/opencode planned) inside Sprites and streaming their output. Single-tenant, SQLite-backed, written in Elixir.
 
 The original Python/Django implementation lives at [ravi-hq/agent-on-demand](https://github.com/ravi-hq/agent-on-demand). This is a ground-up rewrite.
