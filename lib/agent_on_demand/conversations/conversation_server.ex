@@ -108,7 +108,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       runtime_session_id: nil,
       # OTel span context for the in-flight turn (started in kick_turn,
       # ended in the :exit / :interrupt handlers).
-      current_turn_span: nil
+      current_turn_span: nil,
+      # Bytes of replayed output to drop on reattach, keyed by stream.
+      # Empty map outside a reattach window. See attempt_session_attach.
+      replay_skip: %{}
     }
 
     {:ok, state, {:continue, :provision}}
@@ -318,8 +321,6 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         new_state = %{state | sprite: sprite, sprite_env: sprite_env}
         new_state = reattach_running_turn(new_state)
 
-        publish_stage(state.conversation_id, "reattach", "done")
-
         case state.initial_prompt do
           nil -> {:noreply, new_state}
           p -> {:noreply, kick_turn(new_state, p, agent)}
@@ -354,6 +355,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     running_turn = find_running_turn(state.conversation_id)
 
     if is_nil(running_turn) do
+      publish_stage(state.conversation_id, "reattach", "done", %{outcome: "no_running_turn"})
       state
     else
       case Sprites.list_sessions(state.sprite) do
@@ -380,11 +382,18 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   defp attempt_session_attach(state, running_turn, [session | _]) do
     case Sprites.attach_session(state.sprite, session.id, owner: self(), stdin: true) do
       {:ok, command} ->
+        # sprites replays the session's buffered output before live-tailing.
+        # Count the bytes we already persisted for this turn so the
+        # stdout/stderr handlers can drop the replayed prefix.
+        replay_skip =
+          Conversations.output_bytes_by_stream(state.conversation_id, running_turn.id)
+
         publish_stage(state.conversation_id, "reattach", "done", %{
           outcome: "session_attached",
           session_id: session.id,
           turn_id: running_turn.id,
-          turn_number: running_turn.turn_number
+          turn_number: running_turn.turn_number,
+          replay_skip_bytes: replay_skip
         })
 
         conv = Conversations.get_conversation!(state.conversation_id)
@@ -394,7 +403,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
           state
           | current_command: command,
             current_command_ref: command.ref,
-            current_turn: running_turn
+            current_turn: running_turn,
+            replay_skip: replay_skip
         }
 
       {:error, reason} ->
@@ -566,13 +576,11 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
   @impl true
   def handle_info({:stdout, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
-    log_output(state, "stdout", data)
-    {:noreply, state}
+    {:noreply, log_with_replay_skip(state, "stdout", data)}
   end
 
   def handle_info({:stderr, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
-    log_output(state, "stderr", data)
-    {:noreply, state}
+    {:noreply, log_with_replay_skip(state, "stderr", data)}
   end
 
   def handle_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
@@ -789,6 +797,29 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       "conv:#{state.conversation_id}",
       {:log_event, event}
     )
+  end
+
+  # Drop replayed bytes before persisting. After reattach, sprites replays
+  # the session's buffered output up to where it left off, then live-tails.
+  # We pre-loaded the byte count we'd already persisted for the in-flight
+  # turn into `state.replay_skip[stream]`; consume that many bytes off the
+  # front of incoming data, then start logging the remainder normally.
+  defp log_with_replay_skip(state, stream, data) do
+    skip = Map.get(state.replay_skip, stream, 0)
+    size = byte_size(data)
+
+    cond do
+      skip == 0 ->
+        log_output(state, stream, data)
+        state
+
+      skip >= size ->
+        put_in(state.replay_skip[stream], skip - size)
+
+      true ->
+        log_output(state, stream, binary_part(data, skip, size - skip))
+        put_in(state.replay_skip[stream], 0)
+    end
   end
 
   defp publish_stage(conv_id, stage, state, meta \\ %{}) do

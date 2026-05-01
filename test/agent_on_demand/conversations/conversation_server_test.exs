@@ -3,8 +3,13 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
   use Mimic
 
   alias AgentOnDemand.Conversations
-  alias AgentOnDemand.Conversations.{ConversationServer, Sandbox, Turn}
+  alias AgentOnDemand.Conversations.{ConversationServer, Turn}
   alias AgentOnDemand.Repo
+
+  defp stdout_event_count(conv_id) do
+    Conversations.list_log_events(conv_id)
+    |> Enum.count(&(&1.kind == "output" and &1.stream == "stdout"))
+  end
 
   setup :set_mimic_global
 
@@ -162,6 +167,85 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
       assert Process.alive?(pid)
       # Reattach flipped conv to running
       assert Conversations.get_conversation(conv.id).status == "running"
+
+      stop_server(pid)
+    end
+
+    test "replays from session buffer are deduped by byte count", %{agent: agent} do
+      stub(Sprites, :list_sessions, fn _ ->
+        {:ok, [%Sprites.Session{id: "live-session", is_active: true}]}
+      end)
+
+      cmd_ref = make_ref()
+      command_pid = self()
+
+      stub(Sprites, :attach_session, fn _, "live-session", _opts ->
+        {:ok, %Sprites.Command{ref: cmd_ref, pid: command_pid}}
+      end)
+
+      sb = insert_sandbox(status: "ready", sprite_name: "alive")
+      conv = insert_conversation(sandbox: sb, agent: agent, status: "running")
+      running_turn = insert_turn(conv, turn_number: 1, status: "running")
+
+      # Pre-existing output events totalling 12 stdout bytes + 4 stderr.
+      # These represent everything we logged before the BEAM crashed.
+      Conversations.log!(%{
+        conversation_id: conv.id,
+        turn_id: running_turn.id,
+        kind: "output",
+        stream: "stdout",
+        data: "hello\n"
+      })
+
+      Conversations.log!(%{
+        conversation_id: conv.id,
+        turn_id: running_turn.id,
+        kind: "output",
+        stream: "stdout",
+        data: "world\n"
+      })
+
+      Conversations.log!(%{
+        conversation_id: conv.id,
+        turn_id: running_turn.id,
+        kind: "output",
+        stream: "stderr",
+        data: "err\n"
+      })
+
+      pre_count = stdout_event_count(conv.id)
+
+      Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+      pid = start_server!(conv.id, sb.id)
+      Process.sleep(200)
+
+      # Simulate the sprites session buffer replaying everything we already
+      # have, then arriving at fresh post-disconnect output.
+      send(pid, {:stdout, %{ref: cmd_ref}, "hello\nworld\n"})
+      send(pid, {:stdout, %{ref: cmd_ref}, "fresh-after-reattach\n"})
+      send(pid, {:stderr, %{ref: cmd_ref}, "err\nnew-err\n"})
+      Process.sleep(150)
+
+      # Replayed stdout (12 bytes) was dropped; only the post-replay chunk
+      # was persisted as a new event.
+      stdout_after = stdout_event_count(conv.id)
+      assert stdout_after == pre_count + 1
+
+      latest_stdout =
+        Conversations.list_log_events(conv.id)
+        |> Enum.filter(&(&1.kind == "output" and &1.stream == "stdout"))
+        |> List.last()
+
+      assert latest_stdout.data == "fresh-after-reattach\n"
+
+      # Replayed stderr (4 bytes) dropped from the front of a 12-byte chunk;
+      # the remaining 8 bytes ("new-err\n") get persisted as one event.
+      stderr_events =
+        Conversations.list_log_events(conv.id)
+        |> Enum.filter(&(&1.kind == "output" and &1.stream == "stderr"))
+
+      assert length(stderr_events) == 2
+      assert List.last(stderr_events).data == "new-err\n"
 
       stop_server(pid)
     end

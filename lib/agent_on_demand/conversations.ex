@@ -178,6 +178,25 @@ defmodule AgentOnDemand.Conversations do
     )
   end
 
+  @doc """
+  Sum the byte sizes of persisted output events for a turn, by stream.
+  Used by ConversationServer on reattach to know how many bytes of
+  replayed output to skip before persisting fresh, post-disconnect data.
+  """
+  def output_bytes_by_stream(conversation_id, turn_id) do
+    from(e in LogEvent,
+      where:
+        e.conversation_id == ^conversation_id and
+          e.turn_id == ^turn_id and
+          e.kind == "output" and
+          not is_nil(e.stream),
+      group_by: e.stream,
+      select: {e.stream, fragment("COALESCE(SUM(LENGTH(?)), 0)", e.data)}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
   # ── high-level lifecycle ──────────────────────────────────────────────────
 
   alias AgentOnDemand.Agents
