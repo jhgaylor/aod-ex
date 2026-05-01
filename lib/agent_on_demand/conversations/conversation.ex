@@ -27,7 +27,7 @@ defmodule AgentOnDemand.Conversations.Conversation do
     |> cast(attrs, [:runtime, :status, :runtime_session_id, :sandbox_id, :agent_id])
     |> validate_required([:runtime, :status, :sandbox_id])
     |> validate_inclusion(:status, @statuses)
-    |> assoc_constraint(:sandbox)
-    |> assoc_constraint(:agent)
+    |> foreign_key_constraint(:sandbox_id)
+    |> foreign_key_constraint(:agent_id)
   end
 end

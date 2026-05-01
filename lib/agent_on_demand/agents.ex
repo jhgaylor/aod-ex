@@ -7,7 +7,7 @@ defmodule AgentOnDemand.Agents do
   alias AgentOnDemand.Repo
 
   def list_agents do
-    Repo.all(from a in Agent, order_by: [desc: a.inserted_at], preload: [:environment])
+    Repo.all(from a in Agent, order_by: [desc: a.inserted_at, desc: a.id], preload: [:environment])
   end
 
   def get_agent(id), do: Repo.get(Agent, id) |> Repo.preload(:environment)

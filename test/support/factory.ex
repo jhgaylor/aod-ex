@@ -3,16 +3,14 @@ defmodule AgentOnDemand.Factory do
   Test factories for AoD. Lean and explicit — no factory_bot magic.
 
   Each `*_attrs/1` returns a map suitable for the corresponding context's
-  create function. `insert_*/1` skips the changeset and writes the row
-  directly so tests can construct invariants the API wouldn't allow (e.g.
-  a sandbox in `ready` status without going through provision).
+  create function. `insert_*/1` writes the row through the regular
+  changeset so tests have realistic data, but factories accept *both*
+  keyword lists and atom-keyed maps for ergonomics in tests.
   """
 
   alias AgentOnDemand.Repo
   alias AgentOnDemand.Conversations.{Conversation, LogEvent, Sandbox, Turn}
 
-  # Cheap unique suffix so names don't collide across test runs in the same
-  # SQLite file.
   defp uniq, do: System.unique_integer([:positive, :monotonic]) |> Integer.to_string()
 
   # ── environments ──────────────────────────────────────────────────────────
@@ -28,7 +26,7 @@ defmodule AgentOnDemand.Factory do
         "networking_config" => %{},
         "repositories" => []
       },
-      stringify_keys(overrides)
+      to_string_map(overrides)
     )
   end
 
@@ -40,7 +38,7 @@ defmodule AgentOnDemand.Factory do
   def insert_secret(env, overrides \\ %{}) do
     attrs =
       %{"key" => "TEST_KEY_#{uniq()}", "value" => "test-value-#{uniq()}"}
-      |> Map.merge(stringify_keys(overrides))
+      |> Map.merge(to_string_map(overrides))
 
     {:ok, secret} = AgentOnDemand.Environments.upsert_secret(env, attrs)
     secret
@@ -58,7 +56,7 @@ defmodule AgentOnDemand.Factory do
         "mcp_servers" => %{},
         "metadata" => %{}
       },
-      stringify_keys(overrides)
+      to_string_map(overrides)
     )
   end
 
@@ -71,11 +69,8 @@ defmodule AgentOnDemand.Factory do
 
   def insert_sandbox(overrides \\ %{}) do
     attrs =
-      %{
-        sprite_name: "test-sprite-#{uniq()}",
-        status: "pending"
-      }
-      |> Map.merge(atomize_keys(overrides))
+      %{sprite_name: "test-sprite-#{uniq()}", status: "pending"}
+      |> Map.merge(to_atom_map(overrides))
 
     %Sandbox{}
     |> Sandbox.changeset(attrs)
@@ -83,17 +78,18 @@ defmodule AgentOnDemand.Factory do
   end
 
   def insert_conversation(overrides \\ %{}) do
-    sandbox = overrides[:sandbox] || insert_sandbox()
-    agent = overrides[:agent]
+    overrides_map = to_atom_map(overrides)
+    sandbox = Map.get(overrides_map, :sandbox) || insert_sandbox()
+    agent = Map.get(overrides_map, :agent)
 
-    attrs =
-      %{
-        sandbox_id: sandbox.id,
-        agent_id: agent && agent.id,
-        runtime: "claude",
-        status: "pending"
-      }
-      |> Map.merge(atomize_keys(Map.drop(overrides, [:sandbox, :agent])))
+    base = %{
+      sandbox_id: sandbox.id,
+      agent_id: agent && agent.id,
+      runtime: "claude",
+      status: "pending"
+    }
+
+    attrs = Map.merge(base, Map.drop(overrides_map, [:sandbox, :agent]))
 
     %Conversation{}
     |> Conversation.changeset(attrs)
@@ -109,7 +105,7 @@ defmodule AgentOnDemand.Factory do
         prompt: "test prompt",
         status: "pending"
       }
-      |> Map.merge(atomize_keys(overrides))
+      |> Map.merge(to_atom_map(overrides))
 
     %Turn{}
     |> Turn.changeset(attrs)
@@ -125,28 +121,38 @@ defmodule AgentOnDemand.Factory do
         data: "test data",
         inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
       }
-      |> Map.merge(atomize_keys(overrides))
+      |> Map.merge(to_atom_map(overrides))
 
     %LogEvent{}
     |> LogEvent.changeset(attrs)
     |> Repo.insert!()
   end
 
-  # ── helpers ───────────────────────────────────────────────────────────────
+  # ── key helpers ───────────────────────────────────────────────────────────
 
-  defp stringify_keys(map) do
-    Map.new(map, fn
+  # Always return a map keyed by strings.
+  def to_string_map(input) when is_list(input), do: input |> Map.new() |> to_string_map()
+
+  def to_string_map(input) when is_map(input) do
+    Map.new(input, fn
       {k, v} when is_atom(k) -> {Atom.to_string(k), v}
       {k, v} -> {k, v}
     end)
   end
 
-  defp atomize_keys(map) do
-    Map.new(map, fn
-      {k, v} when is_binary(k) -> {String.to_existing_atom(k), v}
-      {k, v} -> {k, v}
+  # Always return a map keyed by atoms (where atoms exist).
+  def to_atom_map(input) when is_list(input), do: input |> Map.new() |> to_atom_map()
+
+  def to_atom_map(input) when is_map(input) do
+    Map.new(input, fn
+      {k, v} when is_atom(k) -> {k, v}
+      {k, v} when is_binary(k) -> {safe_to_existing_atom(k, k), v}
     end)
+  end
+
+  defp safe_to_existing_atom(s, fallback) do
+    String.to_existing_atom(s)
   rescue
-    ArgumentError -> map
+    ArgumentError -> fallback
   end
 end

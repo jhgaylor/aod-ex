@@ -37,7 +37,7 @@ defmodule AgentOnDemand.Conversations do
   def list_conversations do
     Repo.all(
       from c in Conversation,
-        order_by: [desc: c.inserted_at],
+        order_by: [desc: c.inserted_at, desc: c.id],
         preload: [:sandbox, :agent]
     )
   end

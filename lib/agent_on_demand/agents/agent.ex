@@ -44,6 +44,6 @@ defmodule AgentOnDemand.Agents.Agent do
     )
     |> validate_length(:name, min: 1, max: 200)
     |> unique_constraint(:name)
-    |> assoc_constraint(:environment)
+    |> foreign_key_constraint(:environment_id)
   end
 end

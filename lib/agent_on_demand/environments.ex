@@ -9,7 +9,7 @@ defmodule AgentOnDemand.Environments do
   # ── environments ──────────────────────────────────────────────────────────
 
   def list_environments do
-    Repo.all(from e in Environment, order_by: [desc: e.inserted_at])
+    Repo.all(from e in Environment, order_by: [desc: e.inserted_at, desc: e.id])
   end
 
   def get_environment(id), do: Repo.get(Environment, id)
