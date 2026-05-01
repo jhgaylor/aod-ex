@@ -57,7 +57,9 @@ defmodule AgentOnDemand.MixProject do
       {:bandit, "~> 1.5"},
       {:sprites, path: "../sprites-ex"},
       {:yaml_elixir, "~> 2.11"},
-      {:open_api_spex, "~> 3.21"}
+      {:open_api_spex, "~> 3.21"},
+      {:mimic, "~> 1.7", only: :test},
+      {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
   end
 

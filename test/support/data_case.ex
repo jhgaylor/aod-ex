@@ -24,6 +24,7 @@ defmodule AgentOnDemand.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import AgentOnDemand.DataCase
+      import AgentOnDemand.Factory
     end
   end
 
