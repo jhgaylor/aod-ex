@@ -1,5 +1,5 @@
 defmodule AgentOnDemand.Environments.EnvironmentTest do
-  use AgentOnDemand.DataCase, async: true
+  use AgentOnDemand.DataCase, async: false
 
   alias AgentOnDemand.Environments.Environment
 

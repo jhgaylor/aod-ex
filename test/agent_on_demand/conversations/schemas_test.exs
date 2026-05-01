@@ -1,5 +1,5 @@
 defmodule AgentOnDemand.Conversations.SchemasTest do
-  use AgentOnDemand.DataCase, async: true
+  use AgentOnDemand.DataCase, async: false
 
   alias AgentOnDemand.Conversations.{Conversation, LogEvent, Sandbox, Turn}
   alias AgentOnDemand.Repo

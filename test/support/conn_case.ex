@@ -52,4 +52,23 @@ defmodule AgentOnDemandWeb.ConnCase do
     |> Phoenix.ConnTest.init_test_session(%{})
     |> Plug.Conn.put_session(:admin, true)
   end
+
+  @doc """
+  POST/PUT helpers that send JSON bodies with the correct content type.
+  Necessary because OpenApiSpex.Plug.CastAndValidate rejects requests
+  whose content-type isn't application/json. Uses dispatch/5 because
+  the post/put helpers in Phoenix.ConnTest are macros (not callable
+  from a regular function).
+  """
+  def post_json(conn, path, payload) do
+    conn
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+    |> Phoenix.ConnTest.dispatch(AgentOnDemandWeb.Endpoint, :post, path, Jason.encode!(payload))
+  end
+
+  def put_json(conn, path, payload) do
+    conn
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+    |> Phoenix.ConnTest.dispatch(AgentOnDemandWeb.Endpoint, :put, path, Jason.encode!(payload))
+  end
 end

@@ -1,5 +1,5 @@
 defmodule AgentOnDemand.Agents.AgentTest do
-  use AgentOnDemand.DataCase, async: true
+  use AgentOnDemand.DataCase, async: false
 
   alias AgentOnDemand.Agents.Agent
 

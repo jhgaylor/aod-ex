@@ -1,5 +1,5 @@
 defmodule AgentOnDemand.Conversations.ProvisioningTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias AgentOnDemand.Conversations.Provisioning
 
