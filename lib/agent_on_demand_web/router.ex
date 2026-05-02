@@ -69,6 +69,8 @@ defmodule AgentOnDemandWeb.Router do
       live "/environments/new", EnvironmentsLive.Form, :new
       live "/environments/:id/edit", EnvironmentsLive.Form, :edit
       live "/audit", AuditLive.Index, :index
+      live "/help", HelpLive.Show, :index
+      live "/help/:topic", HelpLive.Show, :show
     end
   end
 
