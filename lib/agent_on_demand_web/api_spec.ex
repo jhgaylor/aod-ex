@@ -9,13 +9,15 @@ defmodule AgentOnDemandWeb.ApiSpec do
 
   @behaviour OpenApi
 
+  @app_version Mix.Project.config()[:version]
+
   @impl OpenApi
   def spec do
     %OpenApi{
       servers: [Server.from_endpoint(Endpoint)],
       info: %Info{
         title: "Agent on Demand",
-        version: AgentOnDemand.MixProject.project()[:version] |> to_string(),
+        version: @app_version,
         description: """
         HTTP API for Agent on Demand. The same surface backs the LiveView UI
         and the `aod` CLI; if it's not here, it doesn't exist yet.

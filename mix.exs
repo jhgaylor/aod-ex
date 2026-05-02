@@ -10,6 +10,7 @@ defmodule AgentOnDemand.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      releases: releases(),
       listeners: [Phoenix.CodeReloader],
       escript: [
         main_module: AodCli,
@@ -76,7 +77,37 @@ defmodule AgentOnDemand.MixProject do
       {:mimic, "~> 1.7", only: :test},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:burrito, "~> 1.5", runtime: false}
+    ]
+  end
+
+  defp releases do
+    [
+      agent_on_demand: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            linux: [
+              os: :linux,
+              cpu: :x86_64,
+              custom_erts:
+                "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5"
+            ],
+            macos: [
+              os: :darwin,
+              cpu: :aarch64,
+              custom_erts:
+                "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5"
+            ]
+          ],
+          debug: Mix.env() != :prod,
+          extra_steps: [
+            fetch: [pre: [AoD.Burrito.InjectMuslPath]],
+            patch: [post: [AoD.Burrito.CrossVersionNifCopy]]
+          ]
+        ]
+      ]
     ]
   end
 

@@ -32,6 +32,9 @@ agent_on_demand-*.tar
 # Built escripts
 /aod
 
+# Burrito-wrapped releases (build output)
+/burrito_out/
+
 # Environment files
 .env
 .env.local
