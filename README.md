@@ -127,6 +127,21 @@ Set that URL as `AOD_PUBLIC_URL` in `.env` and restart the server. Any sprite pr
 
 [ngrok](https://ngrok.com) and [tailscale funnel](https://tailscale.com/kb/1223/funnel) work too. ngrok requires a free account; tailscale funnel needs a tailnet.
 
+## Production deploy (Sprites — `mix aod.up`)
+
+One-command deploy into a Sprite (the same primitive that runs each conversation):
+
+```bash
+SPRITES_TOKEN=... MIX_ENV=prod mix release
+SPRITES_TOKEN=... mix aod.up
+# → URL: https://aod-<id>-<region>.sprites.app
+# → ADMIN_TOKEN: <copy from output, log in with this>
+```
+
+The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.up --destroy <sprite-name>`.
+
+Requires Zig 0.15.2 on `PATH` for Burrito's cross-build, and a few Burrito workarounds documented in [docs/deploy.md](docs/deploy.md) — they're paid-down candidates, not load-bearing forever.
+
 ## Production deploy (Render)
 
 `render.yaml` provisions:
