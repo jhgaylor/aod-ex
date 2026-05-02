@@ -491,6 +491,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
           conversation_id: conv_id,
           kind: "output",
           stream: "stdout",
+          stage: "setup",
           data: output
         })
 
@@ -818,12 +819,18 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp log_output(state, stream, data) do
+    # Tag this output with the stage that's active right now. The
+    # runtime CLI is always spawned inside a `turn` so all stdout /
+    # stderr from it gets `stage: "turn"`. Any operator on the
+    # presentation side (LiveView grouping, SSE consumers) can group
+    # output by stage without inferring it from event interleaving.
     event =
       Conversations.log!(%{
         conversation_id: state.conversation_id,
         turn_id: state.current_turn && state.current_turn.id,
         kind: "output",
         stream: stream,
+        stage: "turn",
         data: data
       })
 

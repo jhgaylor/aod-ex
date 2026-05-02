@@ -43,6 +43,29 @@ defmodule AgentOnDemand.Conversations do
   end
 
   @doc """
+  Conversations the operator might still want to interact with: anything
+  not in a terminal state. Ordered with active sessions on top
+  (`running` > `idle`) and most-recent first within a status bucket.
+  Used for the left-nav "active conversations" list.
+  """
+  def list_active_conversations do
+    Repo.all(
+      from c in Conversation,
+        where: c.status not in ["terminated", "completed", "failed"],
+        order_by: [
+          asc:
+            fragment(
+              "CASE ? WHEN 'running' THEN 0 WHEN 'idle' THEN 1 ELSE 2 END",
+              c.status
+            ),
+          desc: c.inserted_at,
+          desc: c.id
+        ],
+        preload: [:agent]
+    )
+  end
+
+  @doc """
   Conversations whose `ConversationServer` would have been running at the
   time of a clean BEAM stop: status `idle` or `running`, with a fully-
   provisioned (`ready`) sandbox.

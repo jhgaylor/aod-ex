@@ -180,7 +180,7 @@ defmodule AgentOnDemand.Conversations.Provisioning do
                 timeout: 300_000
               )
 
-            log_output(conv_id, output)
+            log_output(conv_id, "packages", output)
 
             if code == 0,
               do: {:cont, :ok},
@@ -321,7 +321,8 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     auth_url = inject_token(url, repo["secret_key"], secrets)
 
     cmd =
-      "mkdir -p #{shell_quote(Path.dirname(mount))} && " <>
+      git_env_prefix() <>
+        "mkdir -p #{shell_quote(Path.dirname(mount))} && " <>
         "git clone --depth 50 #{branch_arg(repo)}#{shell_quote(auth_url)} #{shell_quote(mount)}"
 
     {output, code} =
@@ -330,9 +331,19 @@ defmodule AgentOnDemand.Conversations.Provisioning do
         timeout: 600_000
       )
 
-    log_output(conv_id, scrub_token(output))
+    log_output(conv_id, "clone", scrub_token(output))
 
     if code == 0, do: :ok, else: {:error, {:clone, url, code}}
+  end
+
+  # The sprite user can't read `/home/sprite/.config/git/ignore` (parent
+  # dir's perms reject the access(2) check even though most writes go
+  # through), so git emits "warning: unable to access ..." on every
+  # clone. Pin XDG_CONFIG_HOME to /tmp where git can actually stat the
+  # path; missing files are fine (git treats absent global ignore as
+  # "no global ignore"), it's the EACCES that produces the warning.
+  defp git_env_prefix do
+    "export XDG_CONFIG_HOME=/tmp; "
   end
 
   # SSH clone via key-from-secret. The private key is written to a
@@ -347,6 +358,7 @@ defmodule AgentOnDemand.Conversations.Provisioning do
 
         cmd =
           ~s|set -e; |
+          |> Kernel.<>(git_env_prefix())
           |> Kernel.<>(~s|umask 077; |)
           |> Kernel.<>(~s|cat > #{shell_quote(key_path)} << 'AOD_KEY_EOF'\n#{key}\nAOD_KEY_EOF\n|)
           |> Kernel.<>(~s|chmod 600 #{shell_quote(key_path)}; |)
@@ -365,7 +377,7 @@ defmodule AgentOnDemand.Conversations.Provisioning do
             timeout: 600_000
           )
 
-        log_output(conv_id, output)
+        log_output(conv_id, "clone", output)
 
         if code == 0, do: :ok, else: {:error, {:clone, url, code}}
 
@@ -447,11 +459,15 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end)
   end
 
-  defp log_output(conv_id, output) when is_binary(output) and output != "" do
+  # Stamp the output with the stage that was active when it was emitted
+  # so the LiveView (and any API consumer) can group output under its
+  # owning stage without inferring it from event interleaving.
+  defp log_output(conv_id, stage, output) when is_binary(output) and output != "" do
     Conversations.log!(%{
       conversation_id: conv_id,
       kind: "output",
       stream: "stdout",
+      stage: stage,
       data: output
     })
     |> tap(fn ev ->
@@ -459,5 +475,5 @@ defmodule AgentOnDemand.Conversations.Provisioning do
     end)
   end
 
-  defp log_output(_, _), do: :ok
+  defp log_output(_conv_id, _stage, _), do: :ok
 end

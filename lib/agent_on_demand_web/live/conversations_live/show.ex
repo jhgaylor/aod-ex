@@ -179,9 +179,19 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     {:noreply, assign(socket, :view_mode, next)}
   end
 
+  # The `stage` pill toggles **all framework activity**: stage markers
+  # (provision started/done, etc.) AND output that was emitted while a
+  # framework stage was active (apt under packages, git under clone,
+  # the setup script). Turn output (the runtime CLI's stream-json) is
+  # always tagged `stage: "turn"` and is governed by the
+  # `stdout`/`stderr` pills.
   defp event_visible?(%{kind: "stage"}, streams), do: MapSet.member?(streams, "stage")
 
-  defp event_visible?(%{kind: "output", stream: s}, streams) when is_binary(s),
+  defp event_visible?(%{kind: "output", stage: s}, streams)
+       when is_binary(s) and s != "" and s != "turn",
+       do: MapSet.member?(streams, "stage")
+
+  defp event_visible?(%{kind: "output", stream: s}, streams) when is_binary(s) and s != "",
     do: MapSet.member?(streams, s)
 
   defp event_visible?(_ev, _streams), do: false
@@ -236,20 +246,31 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </div>
 
-      <%= if @view_mode == :chat do %>
-        <div class="bg-gradient-to-b from-zinc-50 to-white rounded-lg shadow-sm border border-zinc-200 p-6 h-[60vh] overflow-y-auto"
-          id="log-stream" phx-hook="ScrollBottom">
-          <.chat_view turns={@turns_by_id} events={@events} conv={@conv}/>
-          <div :if={map_size(@turns_by_id) == 0} class="text-zinc-400 text-sm italic">Waiting for the first turn…</div>
-        </div>
-      <% else %>
-        <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
-          id="log-stream" phx-hook="ScrollBottom">
-          <%= for node <- group_into_sections(@events, @visible_streams, @view_mode) do %>
-            <.tree_node node={node} runtime={@conv.runtime} view_mode={@view_mode} turns={@turns_by_id}/>
-          <% end %>
-          <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
-        </div>
+      <%= case @view_mode do %>
+        <% :chat -> %>
+          <div class="bg-gradient-to-b from-zinc-50 to-white rounded-lg shadow-sm border border-zinc-200 p-6 h-[60vh] overflow-y-auto"
+            id="log-stream" phx-hook="ScrollBottom">
+            <.chat_view turns={@turns_by_id} events={@events} conv={@conv}/>
+            <div :if={map_size(@turns_by_id) == 0} class="text-zinc-400 text-sm italic">Waiting for the first turn…</div>
+          </div>
+
+        <% :raw -> %>
+          <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs"
+            id="log-stream" phx-hook="ScrollBottom">
+            <%= for ev <- @events, event_visible?(ev, @visible_streams) do %>
+              <.raw_event_line event={ev}/>
+            <% end %>
+            <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
+          </div>
+
+        <% _ -> %>
+          <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
+            id="log-stream" phx-hook="ScrollBottom">
+            <%= for node <- group_into_sections(@events, @visible_streams, @view_mode) do %>
+              <.tree_node node={node} runtime={@conv.runtime} view_mode={@view_mode} turns={@turns_by_id}/>
+            <% end %>
+            <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
+          </div>
       <% end %>
 
       <form phx-submit="send_prompt" phx-change="update_prompt" class="bg-white rounded shadow border border-zinc-200 p-4 space-y-3">
@@ -551,13 +572,37 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     do_group(rest, v, stack_push_event(ev, stack, v))
   end
 
+  # Output events now carry the active stage in their `:stage` field
+  # (set at write time). When that stage matches an open frame deeper
+  # in the stack — even if that frame isn't the current top — push the
+  # event into THAT frame, not the top one. This keeps e.g. apt's
+  # stdout under `packages` even though `provision` is also open above
+  # `packages` in the stack.
   defp stack_push_event(ev, stack, visible) do
     if event_visible?(ev, visible) do
-      [{frame, kids} | rest] = stack
-      [{frame, [%{kind: :event, event: ev} | kids]} | rest]
+      target = output_stage_target(ev, stack)
+      insert_at(stack, target, %{kind: :event, event: ev})
     else
       stack
     end
+  end
+
+  defp output_stage_target(%{kind: "output", stage: stage}, stack)
+       when is_binary(stage) and stage != "" do
+    case Enum.find_index(stack, fn
+           {%{stage: s}, _kids} -> s == stage
+           _ -> false
+         end) do
+      nil -> 0
+      idx -> idx
+    end
+  end
+
+  defp output_stage_target(_ev, _stack), do: 0
+
+  defp insert_at(stack, idx, child) do
+    {head, [{frame, kids} | tail]} = Enum.split(stack, idx)
+    head ++ [{frame, [child | kids]} | tail]
   end
 
   defp stack_push_section(section, stack) do
@@ -657,6 +702,12 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         <%= case @child_mode do %>
           <% :text -> %>
             <pre class="whitespace-pre-wrap text-xs text-zinc-400 leading-snug py-1"><%= for child <- @node.children do %><span class={section_child_class(child.event)}>{child.event.data}</span><% end %></pre>
+          <% :cards -> %>
+            <div class="space-y-1">
+              <%= for block <- turn_blocks(@node.children, @runtime) do %>
+                <.block_row block={block} stream="stdout"/>
+              <% end %>
+            </div>
           <% _ -> %>
             <div class="space-y-1">
               <%= for child <- @node.children do %>
@@ -673,6 +724,50 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   # red, stdout / unknown in default zinc.
   defp section_child_class(%{kind: "output", stream: "stderr"}), do: "text-rose-300"
   defp section_child_class(_), do: ""
+
+  # Flat per-event row used by raw mode. No grouping, no cards, no
+  # prompt overlay — just the bytes as they were stored, with a small
+  # gutter so the user can tell stage / stdout / stderr apart and
+  # follow-event ordering.
+  attr :event, :map, required: true
+
+  defp raw_event_line(%{event: %{kind: "stage"}} = assigns) do
+    ~H"""
+    <div class="flex gap-3 py-0.5">
+      <span class="text-zinc-600 text-[10px] w-12 text-right font-mono">#{@event.id}</span>
+      <span class="text-amber-400 w-16">stage</span>
+      <span class="text-zinc-300">{@event.stage} {@event.state} {@event.data}</span>
+    </div>
+    """
+  end
+
+  defp raw_event_line(%{event: %{kind: "output"}} = assigns) do
+    {tag, tag_class} = raw_output_tag(assigns.event)
+    assigns = assign(assigns, tag: tag, tag_class: tag_class)
+
+    ~H"""
+    <div class="flex gap-3 py-0.5">
+      <span class="text-zinc-600 text-[10px] w-12 text-right font-mono">#{@event.id}</span>
+      <span class={["w-16", @tag_class]}>{@tag}</span>
+      <pre class={[
+        "whitespace-pre-wrap flex-1",
+        if(@event.stream == "stderr", do: "text-rose-300", else: "text-zinc-300")
+      ]}>{@event.data}</pre>
+    </div>
+    """
+  end
+
+  # Raw-row label for an output event:
+  #   - framework stage (apt under packages, etc.) → show the stage
+  #     name in the same amber as stage markers
+  #   - turn output → show the stream (stdout/stderr) like before
+  defp raw_output_tag(%{stage: s, stream: stream}) when is_binary(s) and s != "" and s != "turn" do
+    color = if stream == "stderr", do: "text-rose-400", else: "text-amber-400"
+    {s, color}
+  end
+
+  defp raw_output_tag(%{stream: "stderr"}), do: {"stderr", "text-rose-400"}
+  defp raw_output_tag(_), do: {"stdout", "text-emerald-400"}
 
   attr :event, :map, required: true
   attr :runtime, :string, required: true
@@ -742,16 +837,31 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       <summary class="cursor-pointer text-zinc-200 flex items-center gap-2">
         <span class="text-zinc-400">🔧</span>
         <span class="font-semibold">{@block.name}</span>
-        <span :if={@block[:summary]} class="text-zinc-500 truncate">{@block.summary}</span>
+        <span :if={@block[:summary]} class="text-zinc-500 truncate flex-1">{@block.summary}</span>
+        <span :if={@block[:result] && @block.result.error?} class="text-rose-300 text-[10px] shrink-0">error</span>
+        <span :if={@block[:result] && not @block.result.error?} class="text-emerald-400 text-[10px] shrink-0">✓</span>
       </summary>
-      <pre class="mt-1 text-zinc-300 whitespace-pre-wrap text-xs">{@block.body}</pre>
+      <div class="mt-1 space-y-1">
+        <div class="text-zinc-500 text-[10px] uppercase tracking-wider">input</div>
+        <pre class="text-zinc-300 whitespace-pre-wrap text-xs">{@block.body}</pre>
+        <div :if={@block[:result]} class="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">result</div>
+        <pre :if={@block[:result]} class={[
+          "whitespace-pre-wrap text-xs",
+          if(@block.result.error?, do: "text-rose-300", else: "text-zinc-300")
+        ]}>{@block.result.body}</pre>
+      </div>
     </details>
     """
   end
 
+  # Orphan tool_result (no matching tool_use seen, e.g. resumed
+  # mid-conversation). Rare; render as a stand-alone indented block.
   defp block_row(%{block: %{kind: :tool_result}} = assigns) do
     ~H"""
-    <div class="text-zinc-300 whitespace-pre-wrap pl-3 border-l border-zinc-700">
+    <div class={[
+      "whitespace-pre-wrap pl-3 border-l border-zinc-700",
+      if(@block[:error?], do: "text-rose-300", else: "text-zinc-300")
+    ]}>
       <span class="text-zinc-500 mr-1">→</span>{@block.body}
     </div>
     """
@@ -806,6 +916,50 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp blocks_for(_, _), do: []
 
+  # Flatten a turn section's children into a single ordered block list,
+  # then collapse each tool_use ↔ tool_result pair (matched by id) into
+  # a single tool_use block with the result tucked inside. The orphan
+  # tool_result fallback handles cases where we can't find a match
+  # (replayed mid-stream, runtime didn't emit an id).
+  defp turn_blocks(children, runtime) do
+    children
+    |> Enum.flat_map(fn
+      %{kind: :event, event: ev} -> blocks_for(ev, runtime)
+      _ -> []
+    end)
+    |> pair_tool_results()
+  end
+
+  defp pair_tool_results(blocks) do
+    # Index tool_result blocks by tool_id so each tool_use can attach
+    # its match in one pass without quadratic walking.
+    results =
+      blocks
+      |> Enum.filter(&(&1.kind == :tool_result and is_binary(Map.get(&1, :tool_id))))
+      |> Map.new(fn r -> {r.tool_id, r} end)
+
+    blocks
+    |> Enum.reduce({[], MapSet.new()}, fn block, {acc, consumed} ->
+      cond do
+        block.kind == :tool_use and is_binary(Map.get(block, :id)) and
+            Map.has_key?(results, block.id) ->
+          r = Map.fetch!(results, block.id)
+          merged = Map.put(block, :result, %{body: r.body, error?: Map.get(r, :error?, false)})
+          {[merged | acc], MapSet.put(consumed, block.id)}
+
+        block.kind == :tool_result and is_binary(Map.get(block, :tool_id)) and
+            MapSet.member?(consumed, block.tool_id) ->
+          # already tucked into the matching tool_use card; drop it.
+          {acc, consumed}
+
+        true ->
+          {[block | acc], consumed}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
   defp line_to_blocks(line, runtime) do
     case Jason.decode(line) do
       {:ok, decoded} ->
@@ -843,10 +997,11 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       %{"type" => "thinking", "thinking" => t} ->
         [%{kind: :thinking, body: t}]
 
-      %{"type" => "tool_use", "name" => name, "input" => input} ->
+      %{"type" => "tool_use", "name" => name, "input" => input} = tu ->
         [
           %{
             kind: :tool_use,
+            id: tu["id"],
             name: name,
             summary: tool_input_preview(input),
             body: Jason.encode!(input, pretty: true)
@@ -860,11 +1015,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp event_blocks("claude", %{"type" => "user", "message" => %{"content" => content}}) do
     Enum.flat_map(content, fn
-      %{"tool_use_id" => _, "content" => c} when is_binary(c) ->
-        [%{kind: :tool_result, body: c}]
+      %{"tool_use_id" => tid, "content" => c} = tr when is_binary(c) ->
+        [%{kind: :tool_result, tool_id: tid, body: c, error?: tr["is_error"] == true}]
 
-      %{"tool_use_id" => _, "content" => list} when is_list(list) ->
-        [%{kind: :tool_result, body: Enum.map_join(list, "\n", &content_part_to_text/1)}]
+      %{"tool_use_id" => tid, "content" => list} = tr when is_list(list) ->
+        [
+          %{
+            kind: :tool_result,
+            tool_id: tid,
+            body: Enum.map_join(list, "\n", &content_part_to_text/1),
+            error?: tr["is_error"] == true
+          }
+        ]
 
       _ ->
         []
@@ -934,23 +1096,21 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
        when is_binary(c),
        do: [%{kind: :text, body: c}]
 
-  defp event_blocks("gemini", %{
-         "type" => "tool_use",
-         "tool_name" => name,
-         "parameters" => params
-       }),
-       do: [
-         %{
-           kind: :tool_use,
-           name: name,
-           summary: tool_input_preview(params),
-           body: Jason.encode!(params, pretty: true)
-         }
-       ]
+  defp event_blocks("gemini", %{"type" => "tool_use"} = ev) do
+    [
+      %{
+        kind: :tool_use,
+        id: ev["tool_id"],
+        name: ev["tool_name"],
+        summary: tool_input_preview(ev["parameters"]),
+        body: Jason.encode!(ev["parameters"] || %{}, pretty: true)
+      }
+    ]
+  end
 
-  defp event_blocks("gemini", %{"type" => "tool_result", "output" => out})
+  defp event_blocks("gemini", %{"type" => "tool_result", "output" => out} = ev)
        when is_binary(out),
-       do: [%{kind: :tool_result, body: out}]
+       do: [%{kind: :tool_result, tool_id: ev["tool_id"], body: out, error?: ev["status"] != "success"}]
 
   defp event_blocks("gemini", %{"type" => "result"} = ev) do
     stats = ev["stats"] || %{}

@@ -205,8 +205,11 @@ defmodule AgentOnDemandWeb.ConversationController do
           |> parse_last_event_id()
 
         streams = parse_streams_param(params["streams"])
+        wait? = parse_bool_param(params["wait"], true)
 
-        Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conv:#{id}")
+        if wait? do
+          Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conv:#{id}")
+        end
 
         conn =
           conn
@@ -218,11 +221,24 @@ defmodule AgentOnDemandWeb.ConversationController do
         # Replay buffered events the client missed.
         {conn, last_id} = replay(conn, id, last_event_id, streams)
 
-        Process.send_after(self(), :heartbeat, @heartbeat_ms)
-
-        sse_loop(conn, last_id, streams)
+        if wait? do
+          Process.send_after(self(), :heartbeat, @heartbeat_ms)
+          sse_loop(conn, last_id, streams)
+        else
+          # `?wait=false` → close immediately after replay. Useful when
+          # the caller already knows the conversation is finished and
+          # just wants to drain the history quickly (no 60s heartbeat
+          # window before curl `--max-time` fires).
+          conn
+        end
     end
   end
+
+  defp parse_bool_param("false", _default), do: false
+  defp parse_bool_param("0", _default), do: false
+  defp parse_bool_param("true", _default), do: true
+  defp parse_bool_param("1", _default), do: true
+  defp parse_bool_param(_, default), do: default
 
   # `?streams=stdout,stderr,stage` — comma-separated allow-list. Empty /
   # missing param = no filter (everything goes through).
