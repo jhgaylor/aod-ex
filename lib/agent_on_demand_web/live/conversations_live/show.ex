@@ -22,7 +22,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
          |> assign(:page_title, "Conversation #{binary_part(id, 0, 8)}")
          |> assign(:conv, conv)
          |> assign(:events, events)
-         |> assign(:streams, MapSet.new(["stdout", "stderr", "stage"]))
+         |> assign(:visible_streams, MapSet.new(["stdout", "stderr", "stage"]))
          |> assign(:prompt, "")}
     end
   end
@@ -109,15 +109,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   end
 
   # Toggle a stream filter pill on/off. Defaults to all three on.
+  # Note: we name the assign `:visible_streams` rather than `:streams`
+  # because Phoenix LiveView reserves `:streams` for its built-in
+  # streams collection API and refuses to let us shadow it.
   def handle_event("toggle_stream", %{"stream" => name}, socket) do
-    streams =
-      if MapSet.member?(socket.assigns.streams, name) do
-        MapSet.delete(socket.assigns.streams, name)
+    visible =
+      if MapSet.member?(socket.assigns.visible_streams, name) do
+        MapSet.delete(socket.assigns.visible_streams, name)
       else
-        MapSet.put(socket.assigns.streams, name)
+        MapSet.put(socket.assigns.visible_streams, name)
       end
 
-    {:noreply, assign(socket, :streams, streams)}
+    {:noreply, assign(socket, :visible_streams, visible)}
   end
 
   defp event_visible?(%{kind: "stage"}, streams), do: MapSet.member?(streams, "stage")
@@ -165,14 +168,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
       <div class="flex items-center gap-2 text-xs">
         <span class="text-zinc-500">show:</span>
-        <.stream_pill name="stage" label="stage" active={MapSet.member?(@streams, "stage")} />
-        <.stream_pill name="stdout" label="stdout" active={MapSet.member?(@streams, "stdout")} />
-        <.stream_pill name="stderr" label="stderr" active={MapSet.member?(@streams, "stderr")} />
+        <.stream_pill name="stage" label="stage" active={MapSet.member?(@visible_streams, "stage")} />
+        <.stream_pill name="stdout" label="stdout" active={MapSet.member?(@visible_streams, "stdout")} />
+        <.stream_pill name="stderr" label="stderr" active={MapSet.member?(@visible_streams, "stderr")} />
       </div>
 
       <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
         id="log-stream" phx-hook="ScrollBottom">
-        <%= for ev <- @events, event_visible?(ev, @streams) do %>
+        <%= for ev <- @events, event_visible?(ev, @visible_streams) do %>
           <.event_line event={ev}/>
         <% end %>
         <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
