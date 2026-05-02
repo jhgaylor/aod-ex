@@ -17,7 +17,7 @@ defmodule AgentOnDemand.Conversations.LogEvent do
     field :stage, :string, default: ""
     field :state, :string, default: ""
     field :duration_ms, :integer
-    field :inserted_at, :utc_datetime
+    field :inserted_at, :utc_datetime_usec
     belongs_to :conversation, Conversation
     belongs_to :turn, Turn
   end

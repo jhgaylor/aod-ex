@@ -151,7 +151,9 @@ defmodule AgentOnDemand.Conversations do
   used as the SSE event id).
   """
   def log!(attrs) do
-    attrs = Map.put_new(attrs, :inserted_at, DateTime.utc_now() |> DateTime.truncate(:second))
+    # Microsecond precision so the LiveView can compute stage durations
+    # under 1s (provision steps run in tens of ms).
+    attrs = Map.put_new(attrs, :inserted_at, DateTime.utc_now())
 
     %LogEvent{}
     |> LogEvent.changeset(attrs)

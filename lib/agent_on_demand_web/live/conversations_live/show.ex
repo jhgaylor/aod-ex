@@ -15,22 +15,66 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
           Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conv:#{id}")
         end
 
-        events = Conversations.list_log_events(id)
+        events = Conversations.list_log_events(id) |> annotate_durations()
 
         {:ok,
          socket
          |> assign(:page_title, "Conversation #{binary_part(id, 0, 8)}")
          |> assign(:conv, conv)
          |> assign(:events, events)
+         |> assign(:turns_by_id, load_turns(id))
          |> assign(:visible_streams, MapSet.new(["stdout", "stderr", "stage"]))
+         |> assign(:view_mode, :pretty)
          |> assign(:prompt, "")}
     end
   end
 
+  defp load_turns(conv_id) do
+    Conversations.list_turns(conv_id) |> Map.new(&{&1.id, &1})
+  end
+
+  # Pair `started`/`done` stage events by name (most recent open
+  # `started` wins) and stamp the closing event with the elapsed
+  # microseconds → milliseconds. Pure read-time computation; no schema
+  # column needed on the way in.
+  defp annotate_durations(events), do: do_annotate(events, %{}, [])
+
+  defp do_annotate([], _open, acc), do: Enum.reverse(acc)
+
+  defp do_annotate([%{kind: "stage", state: "started"} = ev | rest], open, acc) do
+    do_annotate(rest, Map.put(open, ev.stage, ev.inserted_at), [ev | acc])
+  end
+
+  defp do_annotate([%{kind: "stage", state: state} = ev | rest], open, acc)
+       when state in ["done", "failed", "interrupted"] do
+    {duration_ms, open} =
+      case Map.pop(open, ev.stage) do
+        {nil, open} -> {nil, open}
+        {start_at, open} -> {DateTime.diff(ev.inserted_at, start_at, :millisecond), open}
+      end
+
+    do_annotate(rest, open, [Map.put(ev, :duration_ms, duration_ms) | acc])
+  end
+
+  defp do_annotate([ev | rest], open, acc), do: do_annotate(rest, open, [ev | acc])
+
   @impl true
   def handle_info({:log_event, %LogEvent{} = ev}, socket) do
     if ev.id > last_event_id(socket.assigns.events) do
-      {:noreply, assign(socket, :events, socket.assigns.events ++ [ev])}
+      events = annotate_durations(socket.assigns.events ++ [ev])
+      # `turn started` is the only event that creates a new turn row,
+      # so refetch the turns map only when one of those arrives.
+      turns_by_id =
+        if ev.kind == "stage" and ev.stage == "turn" and ev.state == "started" do
+          load_turns(socket.assigns.conv.id)
+        else
+          socket.assigns.turns_by_id
+        end
+
+      {:noreply,
+       socket
+       |> assign(:events, events)
+       |> assign(:turns_by_id, turns_by_id)}
     else
       {:noreply, socket}
     end
@@ -123,6 +167,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     {:noreply, assign(socket, :visible_streams, visible)}
   end
 
+  def handle_event("set_view_mode", %{"mode" => mode}, socket) do
+    next =
+      case mode do
+        "chat" -> :chat
+        "pretty" -> :pretty
+        "raw" -> :raw
+        _ -> socket.assigns.view_mode
+      end
+
+    {:noreply, assign(socket, :view_mode, next)}
+  end
+
   defp event_visible?(%{kind: "stage"}, streams), do: MapSet.member?(streams, "stage")
 
   defp event_visible?(%{kind: "output", stream: s}, streams) when is_binary(s),
@@ -166,20 +222,35 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </div>
 
-      <div class="flex items-center gap-2 text-xs">
-        <span class="text-zinc-500">show:</span>
-        <.stream_pill name="stage" label="stage" active={MapSet.member?(@visible_streams, "stage")} />
-        <.stream_pill name="stdout" label="stdout" active={MapSet.member?(@visible_streams, "stdout")} />
-        <.stream_pill name="stderr" label="stderr" active={MapSet.member?(@visible_streams, "stderr")} />
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <div class={["flex items-center gap-2", @view_mode == :chat && "invisible"]}>
+          <span class="text-zinc-500">show:</span>
+          <.stream_pill name="stage" label="stage" active={MapSet.member?(@visible_streams, "stage")} />
+          <.stream_pill name="stdout" label="stdout" active={MapSet.member?(@visible_streams, "stdout")} />
+          <.stream_pill name="stderr" label="stderr" active={MapSet.member?(@visible_streams, "stderr")} />
+        </div>
+        <div class="inline-flex rounded overflow-hidden border border-zinc-300 font-mono">
+          <.view_mode_button mode="chat" label="chat" active={@view_mode == :chat} />
+          <.view_mode_button mode="pretty" label="pretty" active={@view_mode == :pretty} />
+          <.view_mode_button mode="raw" label="raw" active={@view_mode == :raw} />
+        </div>
       </div>
 
-      <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
-        id="log-stream" phx-hook="ScrollBottom">
-        <%= for ev <- @events, event_visible?(ev, @visible_streams) do %>
-          <.event_line event={ev}/>
-        <% end %>
-        <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
-      </div>
+      <%= if @view_mode == :chat do %>
+        <div class="bg-gradient-to-b from-zinc-50 to-white rounded-lg shadow-sm border border-zinc-200 p-6 h-[60vh] overflow-y-auto"
+          id="log-stream" phx-hook="ScrollBottom">
+          <.chat_view turns={@turns_by_id} events={@events} conv={@conv}/>
+          <div :if={map_size(@turns_by_id) == 0} class="text-zinc-400 text-sm italic">Waiting for the first turn…</div>
+        </div>
+      <% else %>
+        <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
+          id="log-stream" phx-hook="ScrollBottom">
+          <%= for node <- group_into_sections(@events, @visible_streams, @view_mode) do %>
+            <.tree_node node={node} runtime={@conv.runtime} view_mode={@view_mode} turns={@turns_by_id}/>
+          <% end %>
+          <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
+        </div>
+      <% end %>
 
       <form phx-submit="send_prompt" phx-change="update_prompt" class="bg-white rounded shadow border border-zinc-200 p-4 space-y-3">
         <.input id="prompt" name="prompt" type="textarea" rows="3"
@@ -190,6 +261,209 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       </form>
     </div>
     """
+  end
+
+  attr :mode, :string, required: true
+  attr :label, :string, required: true
+  attr :active, :boolean, required: true
+
+  defp view_mode_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="set_view_mode"
+      phx-value-mode={@mode}
+      class={[
+        "px-3 py-0.5",
+        if(@active,
+          do: "bg-zinc-800 text-zinc-50",
+          else: "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+        )
+      ]}
+    >
+      {@label}
+    </button>
+    """
+  end
+
+  attr :turns, :map, required: true
+  attr :events, :list, required: true
+  attr :conv, :map, required: true
+
+  defp chat_view(assigns) do
+    by_turn = Enum.group_by(assigns.events, & &1.turn_id)
+
+    turns =
+      assigns.turns
+      |> Map.values()
+      |> Enum.sort_by(& &1.turn_number)
+
+    assigns = assign(assigns, ordered_turns: turns, events_by_turn: by_turn)
+
+    ~H"""
+    <div class="space-y-6">
+      <%= for turn <- @ordered_turns do %>
+        <.chat_turn turn={turn} events={Map.get(@events_by_turn, turn.id, [])} conv={@conv}/>
+      <% end %>
+    </div>
+    """
+  end
+
+  attr :turn, :map, required: true
+  attr :events, :list, required: true
+  attr :conv, :map, required: true
+
+  defp chat_turn(assigns) do
+    reply = chat_assistant_reply(assigns.events, assigns.conv.runtime)
+    agent_name = assigns.conv.agent && assigns.conv.agent.name
+    runtime_label = assigns.conv.runtime
+
+    assigns =
+      assign(assigns,
+        reply: reply,
+        agent_name: agent_name || runtime_label,
+        agent_glyph: agent_glyph(runtime_label)
+      )
+
+    ~H"""
+    <div class="space-y-3">
+      <.chat_message
+        role={:user}
+        name="you"
+        avatar="👤"
+        glyph_class="bg-blue-600 text-white"
+        timestamp={@turn.started_at}
+      >
+        <p class="whitespace-pre-wrap m-0">{@turn.prompt}</p>
+      </.chat_message>
+
+      <.chat_message
+        :if={@reply != ""}
+        role={:assistant}
+        name={@agent_name}
+        avatar={@agent_glyph}
+        glyph_class="bg-zinc-200 text-zinc-700"
+        timestamp={@turn.ended_at}
+      >
+        <div class="prose prose-sm max-w-none prose-zinc prose-p:my-2 prose-pre:my-2 prose-headings:my-2">
+          {Phoenix.HTML.raw(render_markdown(@reply))}
+        </div>
+      </.chat_message>
+
+      <.chat_message
+        :if={@reply == "" and @turn.status == "running"}
+        role={:assistant}
+        name={@agent_name}
+        avatar={@agent_glyph}
+        glyph_class="bg-zinc-200 text-zinc-700"
+        timestamp={nil}
+        muted
+      >
+        <div class="flex items-center gap-1.5">
+          <span class="size-1.5 rounded-full bg-zinc-400 animate-pulse"/>
+          <span class="size-1.5 rounded-full bg-zinc-400 animate-pulse [animation-delay:200ms]"/>
+          <span class="size-1.5 rounded-full bg-zinc-400 animate-pulse [animation-delay:400ms]"/>
+        </div>
+      </.chat_message>
+
+      <.chat_message
+        :if={@reply == "" and @turn.status not in ["running", "completed"]}
+        role={:assistant}
+        name={@agent_name}
+        avatar={@agent_glyph}
+        glyph_class="bg-zinc-200 text-zinc-700"
+        timestamp={@turn.ended_at}
+        muted
+      >
+        <span class="italic">turn {@turn.status}</span>
+      </.chat_message>
+    </div>
+    """
+  end
+
+  attr :role, :atom, required: true
+  attr :name, :string, required: true
+  attr :avatar, :string, required: true
+  attr :glyph_class, :string, required: true
+  attr :timestamp, :any, default: nil
+  attr :muted, :boolean, default: false
+  slot :inner_block, required: true
+
+  defp chat_message(assigns) do
+    ~H"""
+    <div class={[
+      "flex gap-3 items-start",
+      @role == :user && "flex-row-reverse"
+    ]}>
+      <div class={[
+        "shrink-0 size-8 rounded-full flex items-center justify-center text-sm shadow-sm",
+        @glyph_class
+      ]}>
+        {@avatar}
+      </div>
+      <div class={[
+        "max-w-[78%] flex flex-col gap-1",
+        @role == :user && "items-end"
+      ]}>
+        <div class="flex items-baseline gap-2 px-1">
+          <span class="text-xs font-medium text-zinc-700">{@name}</span>
+          <span :if={@timestamp} class="text-[10px] text-zinc-400 font-mono">{format_chat_time(@timestamp)}</span>
+        </div>
+        <div class={[
+          "rounded-2xl px-4 py-2.5 text-sm shadow-sm",
+          cond do
+            @role == :user -> "bg-blue-600 text-white rounded-tr-sm"
+            @muted -> "bg-zinc-50 border border-zinc-200 text-zinc-500 rounded-tl-sm"
+            true -> "bg-white border border-zinc-200 text-zinc-900 rounded-tl-sm"
+          end
+        ]}>
+          {render_slot(@inner_block)}
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp render_markdown(text) when is_binary(text) do
+    case Earmark.as_html(text, compact_output: true, smartypants: false) do
+      {:ok, html, _warnings} -> html
+      {:error, html, _warnings} -> html
+      _ -> Phoenix.HTML.html_escape(text) |> Phoenix.HTML.safe_to_string()
+    end
+  end
+
+  defp render_markdown(_), do: ""
+
+  defp format_chat_time(nil), do: ""
+
+  defp format_chat_time(%DateTime{} = dt) do
+    dt
+    |> DateTime.shift_zone!("Etc/UTC")
+    |> Calendar.strftime("%H:%M")
+  end
+
+  defp format_chat_time(_), do: ""
+
+  defp agent_glyph("claude"), do: "✦"
+  defp agent_glyph("codex"), do: "◇"
+  defp agent_glyph("gemini"), do: "◈"
+  defp agent_glyph("opencode"), do: "◉"
+  defp agent_glyph(_), do: "🤖"
+
+  # Walk this turn's events and pull out every `:text` block from each
+  # runtime's stream-json. Joined so multi-message turns (claude can
+  # emit several assistant messages, gemini streams deltas) read as
+  # one contiguous reply.
+  defp chat_assistant_reply(events, runtime) do
+    events
+    |> Enum.filter(&(&1.kind == "output" and &1.stream == "stdout" and is_binary(&1.data)))
+    |> Enum.flat_map(&blocks_for(&1, runtime))
+    |> Enum.flat_map(fn
+      %{kind: :text, body: t} when is_binary(t) -> [t]
+      _ -> []
+    end)
+    |> Enum.join("")
+    |> String.trim()
   end
 
   attr :name, :string, required: true
@@ -215,70 +489,603 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     """
   end
 
+  # ── grouping events into stage sections ────────────────────────────
+
+  # Walk the events list and produce a flat list of "tree nodes" where
+  # each `started`-stage event opens a `:section` node that contains all
+  # subsequent output events up to the matching `done`/`failed` event.
+  # Anything outside an open section becomes a `:loose` node.
+  #
+  # `visible` is the MapSet of currently-on stream filters; same filter
+  # is applied to children inside a section. In `:pretty` mode we also
+  # drop the `reattach` started/done pair entirely so the post-crash
+  # output it brackets shows under the resumed `turn started` section
+  # that's still open from before the crash. Events are still in the
+  # DB and visible in `:raw` mode.
+  #
+  # The grouper uses a stack so stage events nest properly:
+  # `provision started` → `packages started` opens `packages` as a
+  # child of `provision`, NOT as a sibling.
+  defp group_into_sections(events, visible, view_mode) do
+    events =
+      if view_mode == :pretty do
+        Enum.reject(events, &hidden_in_pretty?/1)
+      else
+        events
+      end
+
+    [{:root, kids}] = do_group(events, visible, [{:root, []}])
+    Enum.reverse(kids)
+  end
+
+  defp hidden_in_pretty?(%{kind: "stage", stage: "reattach"}), do: true
+  defp hidden_in_pretty?(_), do: false
+
+  # End of stream — close any still-open sections (no `done` event,
+  # likely because the turn is still in flight or the BEAM crashed).
+  defp do_group([], _v, [{:root, _} | _] = stack), do: stack
+
+  defp do_group([], v, [{started, kids} | rest]) when is_map(started) do
+    closed = finalize_section(started, nil, Enum.reverse(kids))
+    do_group([], v, stack_push_section(closed, rest))
+  end
+
+  defp do_group([%{kind: "stage", state: "started"} = ev | rest], v, stack) do
+    do_group(rest, v, [{ev, []} | stack])
+  end
+
+  defp do_group([%{kind: "stage", state: state} = ev | rest], v, stack)
+       when state in ["done", "failed", "interrupted"] do
+    case stack do
+      [{started, kids} | rest_stack] when is_map(started) and started.stage == ev.stage ->
+        closed = finalize_section(started, ev, Enum.reverse(kids))
+        do_group(rest, v, stack_push_section(closed, rest_stack))
+
+      _ ->
+        # Mismatched close → emit as a loose event so it isn't lost.
+        do_group(rest, v, stack_push_event(ev, stack, v))
+    end
+  end
+
+  defp do_group([ev | rest], v, stack) do
+    do_group(rest, v, stack_push_event(ev, stack, v))
+  end
+
+  defp stack_push_event(ev, stack, visible) do
+    if event_visible?(ev, visible) do
+      [{frame, kids} | rest] = stack
+      [{frame, [%{kind: :event, event: ev} | kids]} | rest]
+    else
+      stack
+    end
+  end
+
+  defp stack_push_section(section, stack) do
+    [{frame, kids} | rest] = stack
+    [{frame, [section | kids]} | rest]
+  end
+
+  defp finalize_section(started, done, children) do
+    %{
+      kind: :section,
+      stage: started.stage,
+      started: started,
+      done: done,
+      children: children,
+      duration_ms: done && Map.get(done, :duration_ms)
+    }
+  end
+
+  # ── tree node renderer ─────────────────────────────────────────────
+
+  attr :node, :map, required: true
+  attr :runtime, :string, required: true
+  attr :view_mode, :atom, required: true
+  attr :turns, :map, default: %{}
+
+  defp tree_node(%{node: %{kind: :event}} = assigns) do
+    ~H"""
+    <.event_line event={@node.event} runtime={@runtime} view_mode={@view_mode}/>
+    """
+  end
+
+  defp tree_node(%{node: %{kind: :section}} = assigns) do
+    has_kids? = assigns.node.children != []
+    finished? = not is_nil(assigns.node.done)
+    state = if finished?, do: assigns.node.done.state, else: "started"
+
+    # Three child rendering modes:
+    #   :cards     — the `turn` stage's children are stream-json events
+    #                that we want as per-event cards (text/thinking/tool/etc).
+    #   :recursive — the section contains nested sections (e.g. `provision`
+    #                wraps `packages`/`clone`/`setup`); render children as
+    #                their own tree_nodes so the nesting is visible.
+    #   :text      — leaf section with only output children (shell output);
+    #                flatten into a single inline `<pre>` block.
+    has_section? = Enum.any?(assigns.node.children, &(&1.kind == :section))
+
+    child_mode =
+      cond do
+        assigns.node.stage == "turn" -> :cards
+        has_section? -> :recursive
+        true -> :text
+      end
+
+    # Open by default for the conversation `turn`, sections still in
+    # progress, and container sections (so the user can see what's
+    # nested inside without an extra click). Finished leaf sections
+    # (`packages`, `setup`, ...) start collapsed.
+    open? = not finished? or child_mode in [:cards, :recursive]
+
+    # For `turn` sections we look up the prompt the user submitted for
+    # this turn (the `turn started` event carries `turn_id` in its data
+    # blob) and render it as the lead element inside the section.
+    turn_prompt =
+      if assigns.node.stage == "turn",
+        do: lookup_turn_prompt(assigns.node.started, assigns.turns),
+        else: nil
+
+    assigns =
+      assign(assigns,
+        has_kids?: has_kids?,
+        state: state,
+        child_mode: child_mode,
+        open?: open?,
+        turn_prompt: turn_prompt
+      )
+
+    ~H"""
+    <details open={@open?} class="group">
+      <summary class={[
+        "cursor-pointer flex items-center gap-3 text-xs",
+        not @has_kids? && "list-none cursor-default"
+      ]}>
+        <span class="w-3 text-zinc-500">
+          <span :if={@has_kids?}>▾</span>
+        </span>
+        <span class="w-5 text-center">{stage_icon(@node.stage)}</span>
+        <span class="font-mono text-zinc-200 w-44 truncate">{@node.stage}</span>
+        <span class={["w-20", stage_state_class(@state)]}>{@state}</span>
+        <span class="text-zinc-500 font-mono w-20 text-right">{format_section_duration(@node)}</span>
+        <span class="text-zinc-600 font-mono truncate">{stage_extra(@node.started)}</span>
+      </summary>
+      <div :if={@has_kids? or @turn_prompt} class="pl-8 mt-1 mb-2 border-l border-zinc-800">
+        <div :if={@turn_prompt} class="bg-zinc-800/60 border border-zinc-700 rounded px-3 py-2 mb-2">
+          <div class="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">👤 prompt</div>
+          <pre class="whitespace-pre-wrap text-zinc-100 text-xs">{@turn_prompt}</pre>
+        </div>
+        <%= case @child_mode do %>
+          <% :text -> %>
+            <pre class="whitespace-pre-wrap text-xs text-zinc-400 leading-snug py-1"><%= for child <- @node.children do %><span class={section_child_class(child.event)}>{child.event.data}</span><% end %></pre>
+          <% _ -> %>
+            <div class="space-y-1">
+              <%= for child <- @node.children do %>
+                <.tree_node node={child} runtime={@runtime} view_mode={@view_mode} turns={@turns}/>
+              <% end %>
+            </div>
+        <% end %>
+      </div>
+    </details>
+    """
+  end
+
+  # Color hint for a chunk inside a flattened (text) section: stderr in
+  # red, stdout / unknown in default zinc.
+  defp section_child_class(%{kind: "output", stream: "stderr"}), do: "text-rose-300"
+  defp section_child_class(_), do: ""
+
   attr :event, :map, required: true
+  attr :runtime, :string, required: true
+  attr :view_mode, :atom, required: true
 
   defp event_line(%{event: %{kind: "stage"}} = assigns) do
     ~H"""
-    <div class="text-amber-300">▸ stage: {@event.stage} · {@event.state} {@event.data}</div>
+    <div class="flex items-center gap-3 text-xs">
+      <span class="w-5 text-center">{stage_icon(@event.stage)}</span>
+      <span class="font-mono text-zinc-300 w-44 truncate">{@event.stage}</span>
+      <span class={["w-20", stage_state_class(@event.state)]}>{@event.state}</span>
+      <span class="text-zinc-500 font-mono w-20 text-right">{format_duration(@event)}</span>
+      <span class="text-zinc-600 font-mono truncate">{stage_extra(@event)}</span>
+    </div>
     """
   end
 
-  defp event_line(%{event: %{kind: "output", stream: "stderr"}} = assigns) do
+  defp event_line(%{view_mode: :raw} = assigns) do
     ~H"""
-    <div class="text-rose-300 whitespace-pre-wrap">{summarize(@event.data)}</div>
+    <pre class={[
+      "whitespace-pre-wrap text-xs",
+      if(@event.stream == "stderr", do: "text-rose-300", else: "text-zinc-300")
+    ]}>{@event.data}</pre>
     """
   end
 
+  # :pretty — explode the event into typed blocks (one per JSON line ×
+  # one per content item) and render each on its own row with an icon
+  # and (where useful) a collapsible payload.
   defp event_line(assigns) do
+    blocks = blocks_for(assigns.event, assigns.runtime)
+    assigns = assign(assigns, :blocks, blocks)
+
     ~H"""
-    <div class="text-zinc-200 whitespace-pre-wrap">{summarize(@event.data)}</div>
+    <%= for block <- @blocks do %>
+      <.block_row block={block} stream={@event.stream} />
+    <% end %>
     """
   end
 
-  # Claude stream-json is one JSON object per line. Pull out the human-relevant
-  # bits (text content from assistant messages, tool_use commands, results)
-  # so the timeline isn't a wall of JSON. Falls back to raw if we can't parse.
-  defp summarize(data) when is_binary(data) do
+  attr :block, :map, required: true
+  attr :stream, :string, default: nil
+
+  # ── per-block renderers ────────────────────────────────────────────
+
+  defp block_row(%{block: %{kind: :init}} = assigns) do
+    ~H"""
+    <details class="text-zinc-400 text-xs">
+      <summary class="cursor-pointer">⊙ {@block.summary}</summary>
+      <pre :if={@block[:body]} class="ml-4 mt-1 text-zinc-500 whitespace-pre-wrap">{@block.body}</pre>
+    </details>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :thinking}} = assigns) do
+    ~H"""
+    <div class="text-zinc-400 italic whitespace-pre-wrap pl-3 border-l border-zinc-700">
+      <span class="not-italic text-zinc-500 mr-1">🌀 thinking</span>
+      {@block.body}
+    </div>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :tool_use}} = assigns) do
+    ~H"""
+    <details class="border border-zinc-700 rounded px-2 py-1">
+      <summary class="cursor-pointer text-zinc-200 flex items-center gap-2">
+        <span class="text-zinc-400">🔧</span>
+        <span class="font-semibold">{@block.name}</span>
+        <span :if={@block[:summary]} class="text-zinc-500 truncate">{@block.summary}</span>
+      </summary>
+      <pre class="mt-1 text-zinc-300 whitespace-pre-wrap text-xs">{@block.body}</pre>
+    </details>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :tool_result}} = assigns) do
+    ~H"""
+    <div class="text-zinc-300 whitespace-pre-wrap pl-3 border-l border-zinc-700">
+      <span class="text-zinc-500 mr-1">→</span>{@block.body}
+    </div>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :text}} = assigns) do
+    ~H"""
+    <div class="text-zinc-100 whitespace-pre-wrap">{@block.body}</div>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :result}} = assigns) do
+    ~H"""
+    <details class="text-emerald-300">
+      <summary class="cursor-pointer">✓ {@block.body}</summary>
+      <pre :if={@block[:raw]} class="ml-4 mt-1 text-zinc-500 whitespace-pre-wrap text-xs">{@block.raw}</pre>
+    </details>
+    """
+  end
+
+  defp block_row(%{block: %{kind: :error}} = assigns) do
+    ~H"""
+    <div class="text-rose-300">✗ {@block.body}</div>
+    """
+  end
+
+  # Fallback — unknown JSON or the event was a stream we don't have a
+  # pretty rule for yet. Shows the raw line so nothing is hidden, but
+  # styled lighter so it stands out as "we don't know what this is".
+  defp block_row(%{block: %{kind: :raw}} = assigns) do
+    ~H"""
+    <details class={[
+      "text-xs",
+      if(@stream == "stderr", do: "text-rose-300/80", else: "text-zinc-500")
+    ]}>
+      <summary class="cursor-pointer truncate">{@block[:summary] || "raw"}</summary>
+      <pre class="ml-4 mt-1 whitespace-pre-wrap">{@block.body}</pre>
+    </details>
+    """
+  end
+
+  # ── event → blocks ─────────────────────────────────────────────────
+
+  # Splits an event's `data` (which may be a stream-json chunk with N
+  # lines) into a flat list of structured blocks. Each block is a map
+  # with at least `:kind`, plus kind-specific fields.
+  defp blocks_for(%{data: data}, runtime) when is_binary(data) do
     data
     |> String.split("\n", trim: true)
-    |> Enum.map_join("\n", &summarize_line/1)
+    |> Enum.flat_map(&line_to_blocks(&1, runtime))
   end
 
-  defp summarize(_), do: ""
+  defp blocks_for(_, _), do: []
 
-  defp summarize_line(line) do
+  defp line_to_blocks(line, runtime) do
     case Jason.decode(line) do
-      {:ok, %{"type" => "assistant", "message" => %{"content" => content}}} ->
-        content
-        |> Enum.map_join("", fn
-          %{"type" => "text", "text" => t} ->
-            t
+      {:ok, decoded} ->
+        case event_blocks(runtime, decoded) do
+          nil -> [%{kind: :raw, body: line, summary: short_kind(decoded)}]
+          blocks when is_list(blocks) -> blocks
+        end
 
-          %{"type" => "thinking", "thinking" => t} ->
-            "\n[thinking] " <> t
-
-          %{"type" => "tool_use", "name" => name, "input" => input} ->
-            "\n[#{name}] " <> Jason.encode!(input)
-
-          _ ->
-            ""
-        end)
-
-      {:ok, %{"type" => "user", "message" => %{"content" => content}}} ->
-        content
-        |> Enum.map_join("\n", fn
-          %{"tool_use_id" => _, "content" => c} when is_binary(c) -> "→ " <> c
-          _ -> ""
-        end)
-
-      {:ok, %{"type" => "result", "result" => r}} when is_binary(r) ->
-        "✓ " <> r
-
-      {:ok, %{"type" => "system", "subtype" => "init", "model" => model}} ->
-        "[init: #{model}]"
-
-      _ ->
-        line
+      {:error, _} ->
+        [%{kind: :raw, body: line, summary: "raw"}]
     end
   end
+
+  defp short_kind(%{"type" => t}), do: to_string(t)
+  defp short_kind(_), do: "raw"
+
+  # ── claude (stream-json) ───────────────────────────────────────────
+  defp event_blocks("claude", %{"type" => "system", "subtype" => "init"} = ev) do
+    model = ev["model"]
+    tool_count = ev["tools"] |> case do l when is_list(l) -> length(l); _ -> nil end
+
+    summary =
+      ["session started", model, tool_count && "#{tool_count} tools"]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    [%{kind: :init, summary: summary, body: Jason.encode!(ev, pretty: true)}]
+  end
+
+  defp event_blocks("claude", %{"type" => "assistant", "message" => %{"content" => content}}) do
+    Enum.flat_map(content, fn
+      %{"type" => "text", "text" => t} ->
+        [%{kind: :text, body: t}]
+
+      %{"type" => "thinking", "thinking" => t} ->
+        [%{kind: :thinking, body: t}]
+
+      %{"type" => "tool_use", "name" => name, "input" => input} ->
+        [
+          %{
+            kind: :tool_use,
+            name: name,
+            summary: tool_input_preview(input),
+            body: Jason.encode!(input, pretty: true)
+          }
+        ]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp event_blocks("claude", %{"type" => "user", "message" => %{"content" => content}}) do
+    Enum.flat_map(content, fn
+      %{"tool_use_id" => _, "content" => c} when is_binary(c) ->
+        [%{kind: :tool_result, body: c}]
+
+      %{"tool_use_id" => _, "content" => list} when is_list(list) ->
+        [%{kind: :tool_result, body: Enum.map_join(list, "\n", &content_part_to_text/1)}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp event_blocks("claude", %{"type" => "result"} = ev) do
+    bits =
+      [
+        format_status(ev["subtype"]),
+        ev["duration_ms"] && format_duration_ms(ev["duration_ms"]),
+        ev["usage"] && "in:#{ev["usage"]["input_tokens"]} out:#{ev["usage"]["output_tokens"]}"
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    # Body is intentionally left out here — it's a copy of the final
+    # assistant message which we already rendered as a :text block.
+    [%{kind: :result, body: bits, raw: Jason.encode!(ev, pretty: true)}]
+  end
+
+  defp event_blocks("claude", %{"type" => "rate_limit_event"}), do: []
+
+  # ── codex (`codex exec --json`) ────────────────────────────────────
+  defp event_blocks("codex", %{"type" => "thread.started", "thread_id" => id}),
+    do: [%{kind: :init, summary: "thread: #{id}"}]
+
+  defp event_blocks("codex", %{"type" => "turn.started"}), do: []
+  defp event_blocks("codex", %{"type" => "item.started"}), do: []
+
+  defp event_blocks("codex", %{
+         "type" => "item.completed",
+         "item" => %{"type" => "agent_message", "text" => text}
+       }),
+       do: [%{kind: :text, body: text}]
+
+  defp event_blocks("codex", %{"type" => "item.completed", "item" => %{"type" => t} = item}),
+    do: [%{kind: :tool_use, name: to_string(t), body: Jason.encode!(item, pretty: true)}]
+
+  defp event_blocks("codex", %{"type" => "turn.completed", "usage" => usage}),
+    do: [
+      %{
+        kind: :result,
+        body: "in:#{usage["input_tokens"]} out:#{usage["output_tokens"]}"
+      }
+    ]
+
+  defp event_blocks("codex", %{"type" => "turn.failed", "error" => %{"message" => m}}),
+    do: [%{kind: :error, body: m}]
+
+  defp event_blocks("codex", %{"type" => "error", "message" => m}),
+    do: [%{kind: :error, body: m}]
+
+  # ── gemini (`gemini --output-format stream-json`) ──────────────────
+  defp event_blocks("gemini", %{"type" => "init"} = ev) do
+    summary =
+      ["session started", ev["model"]]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    [%{kind: :init, summary: summary, body: Jason.encode!(ev, pretty: true)}]
+  end
+
+  defp event_blocks("gemini", %{"type" => "message", "role" => "user"}), do: []
+
+  defp event_blocks("gemini", %{"type" => "message", "role" => "assistant", "content" => c})
+       when is_binary(c),
+       do: [%{kind: :text, body: c}]
+
+  defp event_blocks("gemini", %{
+         "type" => "tool_use",
+         "tool_name" => name,
+         "parameters" => params
+       }),
+       do: [
+         %{
+           kind: :tool_use,
+           name: name,
+           summary: tool_input_preview(params),
+           body: Jason.encode!(params, pretty: true)
+         }
+       ]
+
+  defp event_blocks("gemini", %{"type" => "tool_result", "output" => out})
+       when is_binary(out),
+       do: [%{kind: :tool_result, body: out}]
+
+  defp event_blocks("gemini", %{"type" => "result"} = ev) do
+    stats = ev["stats"] || %{}
+
+    bits =
+      [
+        ev["status"] && to_string(ev["status"]),
+        stats["duration_ms"] && format_duration_ms(stats["duration_ms"]),
+        stats["total_tokens"] && "#{stats["total_tokens"]} tokens"
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    [%{kind: :result, body: bits, raw: Jason.encode!(ev, pretty: true)}]
+  end
+
+  # ── opencode (`opencode run --format json`) ────────────────────────
+  defp event_blocks("opencode", %{"type" => "step_start"}), do: []
+
+  defp event_blocks("opencode", %{"type" => "text", "part" => %{"text" => t}})
+       when is_binary(t),
+       do: [%{kind: :text, body: t}]
+
+  defp event_blocks("opencode", %{
+         "type" => "tool_use",
+         "part" => %{"tool" => name, "state" => %{"input" => input}}
+       }),
+       do: [
+         %{
+           kind: :tool_use,
+           name: name,
+           summary: tool_input_preview(input),
+           body: Jason.encode!(input, pretty: true)
+         }
+       ]
+
+  defp event_blocks("opencode", %{"type" => "tool_use", "part" => %{"tool" => name}}),
+    do: [%{kind: :tool_use, name: name}]
+
+  defp event_blocks("opencode", %{"type" => "step_finish", "part" => %{"reason" => reason}} = ev),
+    do: [%{kind: :result, body: reason, raw: Jason.encode!(ev, pretty: true)}]
+
+  # Unknown — caller falls back to a :raw block.
+  defp event_blocks(_runtime, _decoded), do: nil
+
+  # Small helpers
+  defp content_part_to_text(%{"type" => "text", "text" => t}), do: t
+  defp content_part_to_text(other), do: Jason.encode!(other)
+
+  # One-line preview of a tool's input for display next to the tool name.
+  defp tool_input_preview(input) when is_map(input) do
+    cond do
+      Map.has_key?(input, "command") -> to_string(input["command"]) |> truncate(80)
+      Map.has_key?(input, "file_path") -> to_string(input["file_path"])
+      Map.has_key?(input, "pattern") -> to_string(input["pattern"])
+      true -> input |> Jason.encode!() |> truncate(80)
+    end
+  end
+
+  defp tool_input_preview(_), do: nil
+
+  defp truncate(s, n) when is_binary(s) and byte_size(s) > n,
+    do: binary_part(s, 0, n) <> "…"
+
+  defp truncate(s, _), do: s
+
+  # ── stage row helpers ──────────────────────────────────────────────
+
+  defp stage_icon("provision"), do: "✨"
+  defp stage_icon("checkpoint_restore"), do: "📦"
+  defp stage_icon("setup"), do: "🛠️"
+  defp stage_icon("packages"), do: "📥"
+  defp stage_icon("network"), do: "🌐"
+  defp stage_icon("clone"), do: "🪧"
+  defp stage_icon("turn"), do: "💬"
+  defp stage_icon("reattach"), do: "🔌"
+  defp stage_icon("terminate"), do: "🛑"
+  defp stage_icon(_), do: "•"
+
+  defp stage_state_class("started"), do: "text-zinc-400"
+  defp stage_state_class("done"), do: "text-emerald-400"
+  defp stage_state_class("failed"), do: "text-rose-400"
+  defp stage_state_class("interrupted"), do: "text-amber-400"
+  defp stage_state_class(_), do: "text-zinc-500"
+
+  defp format_duration(%{state: "started"}), do: "…"
+  defp format_duration(%{duration_ms: nil}), do: ""
+  defp format_duration(%{duration_ms: ms}), do: format_duration_ms(ms)
+  defp format_duration(_), do: ""
+
+  defp format_section_duration(%{done: nil}), do: "…"
+  defp format_section_duration(%{duration_ms: nil}), do: ""
+  defp format_section_duration(%{duration_ms: ms}), do: format_duration_ms(ms)
+
+  defp format_duration_ms(ms) when is_integer(ms) and ms < 1_000, do: "#{ms}ms"
+  defp format_duration_ms(ms) when is_integer(ms), do: "#{Float.round(ms / 1000, 1)}s"
+  defp format_duration_ms(_), do: ""
+
+  # Optional one-liner appended to a stage row from its `data` payload —
+  # e.g. `provision_setup` shows `exit_code:0`, `clone` shows `count:3`.
+  defp stage_extra(%{data: data}) when is_binary(data) and data not in ["", "{}"] do
+    case Jason.decode(data) do
+      {:ok, %{} = m} when map_size(m) > 0 ->
+        m
+        |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{format_extra_val(v)}" end)
+        |> truncate(120)
+
+      _ ->
+        ""
+    end
+  end
+
+  defp stage_extra(_), do: ""
+
+  defp format_extra_val(v) when is_binary(v), do: truncate(v, 40)
+  defp format_extra_val(v), do: inspect(v)
+
+  defp format_status(nil), do: nil
+  defp format_status(s), do: to_string(s)
+
+  # Pull the turn_id out of the `turn started` event's JSON data and
+  # look up the prompt the user submitted for that turn. Returns the
+  # prompt string or nil if unavailable.
+  defp lookup_turn_prompt(%{data: data}, turns_by_id) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, %{"turn_id" => id}} ->
+        case Map.get(turns_by_id, id) do
+          %{prompt: p} when is_binary(p) and p != "" -> p
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp lookup_turn_prompt(_, _), do: nil
 end
