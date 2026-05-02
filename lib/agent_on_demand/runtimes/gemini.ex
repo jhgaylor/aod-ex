@@ -89,43 +89,6 @@ defmodule AgentOnDemand.Runtimes.Gemini do
     :ok
   end
 
-  # gemini-cli emits a lot of operational chatter on stderr during
-  # startup and on every MCP refresh — banner ("YOLO mode is enabled"),
-  # registration logs, "Tool X already registered. Overwriting." (it
-  # registers on initial discovery + on the update notification fired
-  # by that same registration), the periodic refresh-coalesce loop. None
-  # of it is actionable for the user. Real errors ("Failed to generate
-  # content...", "API error 500", etc.) don't match these patterns and
-  # still flow through.
-  @impl true
-  def stderr_noise_patterns do
-    [
-      "YOLO mode is enabled",
-      "Registering notification handlers",
-      "Server '",
-      "Listening for changes",
-      "🔔",
-      "Refresh for '",
-      "Retry refresh for '",
-      "Tool refresh for '",
-      "MCP context refresh",
-      "Scheduling MCP context refresh",
-      "Executing MCP context refresh",
-      "Coalescing burst refresh requests",
-      "[MCP info]",
-      "No tool changes detected",
-      "is already registered. Overwriting",
-      # Continuation lines from the multi-line `Capabilities: {…}` body
-      # printed alongside "Registering notification handlers".
-      "logging: {",
-      "completions: {",
-      "prompts: { listChanged",
-      "resources: { subscribe",
-      "tools: { listChanged",
-      "tasks: { list:"
-    ]
-  end
-
   # Make sure the workspace exists and is a git repo; gemini's
   # MemoryDiscovery is happy as long as it finds *some* .git when it
   # walks up from cwd.

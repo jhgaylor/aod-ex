@@ -22,6 +22,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
          |> assign(:page_title, "Conversation #{binary_part(id, 0, 8)}")
          |> assign(:conv, conv)
          |> assign(:events, events)
+         |> assign(:streams, MapSet.new(["stdout", "stderr", "stage"]))
          |> assign(:prompt, "")}
     end
   end
@@ -107,6 +108,25 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     {:noreply, assign(socket, :prompt, p)}
   end
 
+  # Toggle a stream filter pill on/off. Defaults to all three on.
+  def handle_event("toggle_stream", %{"stream" => name}, socket) do
+    streams =
+      if MapSet.member?(socket.assigns.streams, name) do
+        MapSet.delete(socket.assigns.streams, name)
+      else
+        MapSet.put(socket.assigns.streams, name)
+      end
+
+    {:noreply, assign(socket, :streams, streams)}
+  end
+
+  defp event_visible?(%{kind: "stage"}, streams), do: MapSet.member?(streams, "stage")
+
+  defp event_visible?(%{kind: "output", stream: s}, streams) when is_binary(s),
+    do: MapSet.member?(streams, s)
+
+  defp event_visible?(_ev, _streams), do: false
+
   defp last_event_id([]), do: 0
   defp last_event_id(events), do: events |> List.last() |> Map.get(:id, 0)
 
@@ -143,9 +163,16 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </div>
 
+      <div class="flex items-center gap-2 text-xs">
+        <span class="text-zinc-500">show:</span>
+        <.stream_pill name="stage" label="stage" active={MapSet.member?(@streams, "stage")} />
+        <.stream_pill name="stdout" label="stdout" active={MapSet.member?(@streams, "stdout")} />
+        <.stream_pill name="stderr" label="stderr" active={MapSet.member?(@streams, "stderr")} />
+      </div>
+
       <div class="bg-zinc-900 text-zinc-100 rounded shadow p-4 h-[60vh] overflow-y-auto font-mono text-xs space-y-1"
         id="log-stream" phx-hook="ScrollBottom">
-        <%= for ev <- @events do %>
+        <%= for ev <- @events, event_visible?(ev, @streams) do %>
           <.event_line event={ev}/>
         <% end %>
         <div :if={@events == []} class="text-zinc-500">Waiting for output…</div>
@@ -159,6 +186,29 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </form>
     </div>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :label, :string, required: true
+  attr :active, :boolean, required: true
+
+  defp stream_pill(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="toggle_stream"
+      phx-value-stream={@name}
+      class={[
+        "px-2 py-0.5 rounded font-mono",
+        if(@active,
+          do: "bg-zinc-200 text-zinc-900 border border-zinc-300",
+          else: "bg-zinc-100 text-zinc-400 border border-zinc-200 line-through"
+        )
+      ]}
+    >
+      {@label}
+    </button>
     """
   end
 

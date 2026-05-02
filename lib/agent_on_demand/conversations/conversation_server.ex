@@ -594,10 +594,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   def handle_info({:stderr, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
-    case strip_noise(state.runtime_module, data) do
-      :all_noise -> {:noreply, state}
-      cleaned -> {:noreply, log_with_replay_skip(state, "stderr", cleaned)}
-    end
+    {:noreply, log_with_replay_skip(state, "stderr", data)}
   end
 
   def handle_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
@@ -835,51 +832,6 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       "conv:#{state.conversation_id}",
       {:log_event, event}
     )
-  end
-
-  # Drop stderr lines that match the runtime's `stderr_noise_patterns/0`
-  # list (operational chatter — banners, MCP refresh logs, etc.). Lines
-  # are split on newlines so a chunk that mixes noise + real content
-  # only loses the noisy lines.
-  defp strip_noise(runtime_module, data) do
-    Code.ensure_loaded(runtime_module)
-
-    if function_exported?(runtime_module, :stderr_noise_patterns, 0) do
-      patterns = runtime_module.stderr_noise_patterns()
-      apply_noise_filter(data, patterns)
-    else
-      data
-    end
-  end
-
-  defp apply_noise_filter(data, []), do: data
-
-  defp apply_noise_filter(data, patterns) when is_binary(data) do
-    {trailer, full_lines} =
-      data
-      |> String.split("\n")
-      |> Enum.reverse()
-      |> case do
-        [last | rest] -> {last, Enum.reverse(rest)}
-      end
-
-    kept =
-      full_lines
-      |> Enum.reject(fn line ->
-        trimmed = String.trim(line)
-        # Drop standalone JSON closers/openers that are left over when
-        # we filter the surrounding multi-line block (e.g. gemini's
-        # `Capabilities: { ... }` body — the body lines match patterns
-        # but the trailing `}` doesn't on its own).
-        trimmed in ["{", "}"] or
-          Enum.any?(patterns, &String.contains?(line, &1))
-      end)
-
-    case {kept, trailer} do
-      {[], ""} -> :all_noise
-      {kept, ""} -> Enum.join(kept, "\n") <> "\n"
-      {kept, trailer} -> Enum.join(kept ++ [trailer], "\n")
-    end
   end
 
   # Drop replayed bytes before persisting. After reattach, sprites replays

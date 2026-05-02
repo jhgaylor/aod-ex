@@ -192,7 +192,7 @@ defmodule AgentOnDemandWeb.ConversationController do
 
   @heartbeat_ms 15_000
 
-  def stream(conn, %{"conversation_id" => id}) do
+  def stream(conn, %{"conversation_id" => id} = params) do
     case Conversations.get_conversation(id) do
       nil ->
         {:error, :not_found}
@@ -204,6 +204,8 @@ defmodule AgentOnDemandWeb.ConversationController do
           |> List.first()
           |> parse_last_event_id()
 
+        streams = parse_streams_param(params["streams"])
+
         Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conv:#{id}")
 
         conn =
@@ -214,12 +216,21 @@ defmodule AgentOnDemandWeb.ConversationController do
           |> send_chunked(200)
 
         # Replay buffered events the client missed.
-        {conn, last_id} = replay(conn, id, last_event_id)
+        {conn, last_id} = replay(conn, id, last_event_id, streams)
 
         Process.send_after(self(), :heartbeat, @heartbeat_ms)
 
-        sse_loop(conn, last_id)
+        sse_loop(conn, last_id, streams)
     end
+  end
+
+  # `?streams=stdout,stderr,stage` — comma-separated allow-list. Empty /
+  # missing param = no filter (everything goes through).
+  defp parse_streams_param(nil), do: nil
+  defp parse_streams_param(""), do: nil
+
+  defp parse_streams_param(s) when is_binary(s) do
+    s |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
   end
 
   defp parse_last_event_id(nil), do: 0
@@ -232,8 +243,9 @@ defmodule AgentOnDemandWeb.ConversationController do
     end
   end
 
-  defp replay(conn, conv_id, after_id) do
-    Conversations.list_log_events(conv_id, after_id)
+  defp replay(conn, conv_id, after_id, streams) do
+    conv_id
+    |> Conversations.list_log_events(after_id, streams: streams)
     |> Enum.reduce({conn, after_id}, fn ev, {acc_conn, _} ->
       case write_event(acc_conn, ev) do
         {:ok, c} -> {c, ev.id}
@@ -242,22 +254,40 @@ defmodule AgentOnDemandWeb.ConversationController do
     end)
   end
 
-  defp sse_loop(conn, last_id) do
+  # Match a freshly-broadcast event against the same allow-list the
+  # historical replay used.
+  defp event_in_streams?(_ev, nil), do: true
+
+  defp event_in_streams?(%LogEvent{kind: "stage"}, streams),
+    do: "stage" in streams
+
+  defp event_in_streams?(%LogEvent{stream: s}, streams) when is_binary(s),
+    do: s in streams
+
+  defp event_in_streams?(_ev, _streams), do: false
+
+  defp sse_loop(conn, last_id, streams) do
     receive do
       {:log_event, %LogEvent{id: ev_id} = ev} when ev_id > last_id ->
-        case write_event(conn, ev) do
-          {:ok, conn} -> sse_loop(conn, ev_id)
-          {:error, _} -> conn
+        cond do
+          not event_in_streams?(ev, streams) ->
+            sse_loop(conn, ev_id, streams)
+
+          true ->
+            case write_event(conn, ev) do
+              {:ok, conn} -> sse_loop(conn, ev_id, streams)
+              {:error, _} -> conn
+            end
         end
 
       {:log_event, _stale} ->
-        sse_loop(conn, last_id)
+        sse_loop(conn, last_id, streams)
 
       :heartbeat ->
         case Plug.Conn.chunk(conn, ": heartbeat\n\n") do
           {:ok, conn} ->
             Process.send_after(self(), :heartbeat, @heartbeat_ms)
-            sse_loop(conn, last_id)
+            sse_loop(conn, last_id, streams)
 
           {:error, _} ->
             conn

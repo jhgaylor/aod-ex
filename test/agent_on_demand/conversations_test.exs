@@ -94,6 +94,61 @@ defmodule AgentOnDemand.ConversationsTest do
       after_e1 = Conversations.list_log_events(conv.id, e1.id) |> Enum.map(& &1.id)
       assert after_e1 == [e2.id]
     end
+
+    test "list_log_events filters by streams" do
+      conv = insert_conversation()
+
+      stage =
+        Conversations.log!(%{
+          conversation_id: conv.id,
+          kind: "stage",
+          stage: "turn",
+          state: "started"
+        })
+
+      out =
+        Conversations.log!(%{
+          conversation_id: conv.id,
+          kind: "output",
+          stream: "stdout",
+          data: "hello"
+        })
+
+      err =
+        Conversations.log!(%{
+          conversation_id: conv.id,
+          kind: "output",
+          stream: "stderr",
+          data: "boom"
+        })
+
+      # Default: no filter, everything comes back.
+      assert Conversations.list_log_events(conv.id) |> Enum.map(& &1.id) ==
+               [stage.id, out.id, err.id]
+
+      # Single stream
+      assert Conversations.list_log_events(conv.id, 0, streams: ["stdout"])
+             |> Enum.map(& &1.id) == [out.id]
+
+      assert Conversations.list_log_events(conv.id, 0, streams: ["stderr"])
+             |> Enum.map(& &1.id) == [err.id]
+
+      # Stage events have no stream column — filter on the synthetic
+      # "stage" name.
+      assert Conversations.list_log_events(conv.id, 0, streams: ["stage"])
+             |> Enum.map(& &1.id) == [stage.id]
+
+      # Combinations
+      assert Conversations.list_log_events(conv.id, 0, streams: ["stage", "stderr"])
+             |> Enum.map(& &1.id) == [stage.id, err.id]
+
+      # Empty / nil = no filter
+      assert Conversations.list_log_events(conv.id, 0, streams: nil) |> length() == 3
+      assert Conversations.list_log_events(conv.id, 0, streams: []) |> length() == 3
+
+      # Unknown stream name returns nothing rather than the whole table.
+      assert Conversations.list_log_events(conv.id, 0, streams: ["nope"]) == []
+    end
   end
 
   describe "list_resumable_conversations" do

@@ -170,12 +170,44 @@ defmodule AgentOnDemand.Conversations do
     |> Repo.stream(max_rows: 100)
   end
 
-  def list_log_events(conversation_id, after_id \\ 0) do
-    Repo.all(
+  def list_log_events(conversation_id, after_id \\ 0, opts \\ []) do
+    base =
       from e in LogEvent,
         where: e.conversation_id == ^conversation_id and e.id > ^after_id,
         order_by: [asc: e.id]
-    )
+
+    base
+    |> apply_streams_filter(Keyword.get(opts, :streams))
+    |> Repo.all()
+  end
+
+  # `streams` is a list of allowed stream identifiers. We accept the
+  # three values that show up in log_events: `"stdout"`, `"stderr"`, and
+  # `"stage"` (the synthetic name we give to `kind: "stage"` events,
+  # which don't have a real `stream` column value). `nil`/empty list =
+  # no filter.
+  defp apply_streams_filter(query, nil), do: query
+  defp apply_streams_filter(query, []), do: query
+
+  defp apply_streams_filter(query, streams) when is_list(streams) do
+    real_streams = Enum.filter(streams, &(&1 in ["stdout", "stderr"]))
+    include_stage? = "stage" in streams
+
+    cond do
+      include_stage? and real_streams != [] ->
+        from e in query,
+          where: e.kind == "stage" or e.stream in ^real_streams
+
+      include_stage? ->
+        from e in query, where: e.kind == "stage"
+
+      real_streams != [] ->
+        from e in query, where: e.stream in ^real_streams
+
+      true ->
+        # All values were unknown; return nothing rather than everything.
+        from e in query, where: false
+    end
   end
 
   @doc """
