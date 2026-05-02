@@ -43,3 +43,6 @@ agent_on_demand-*.tar
 /priv/seeds/*.yaml
 /priv/seeds/*.json
 
+
+# Operator's local AoD manifest — contains MCP bearer tokens.
+aod.yml

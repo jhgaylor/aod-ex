@@ -15,6 +15,7 @@ defmodule AodCli do
       aod conv delete <id>              destroy sprite + delete the row + turns
       aod agent list
       aod env list
+      aod apply -f <file>               reconcile environments + agents from a YAML manifest
 
   Pass `--json` to any list/show command to get raw JSON.
   """
@@ -28,6 +29,7 @@ defmodule AodCli do
       ["conv" | rest] -> AodCli.Conv.dispatch(rest)
       ["agent" | rest] -> AodCli.Agent.dispatch(rest)
       ["env" | rest] -> AodCli.Env.dispatch(rest)
+      ["apply" | rest] -> AodCli.Apply.dispatch(rest)
       ["help"] -> usage()
       ["--help"] -> usage()
       [] -> usage()
