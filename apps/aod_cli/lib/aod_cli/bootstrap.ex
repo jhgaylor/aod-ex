@@ -20,12 +20,7 @@ defmodule AodCli.Bootstrap do
 
   @impl Application
   def start(_type, _args) do
-    IO.puts(
-      :stderr,
-      "aod-bootstrap: run_main_on_start=#{inspect(run_main_on_start?())} RELEASE_NAME=#{inspect(System.get_env("RELEASE_NAME"))}"
-    )
-
-    if run_main_on_start?() do
+    if cli_release?() do
       # Burrito's documented pattern: do the work in start/2 directly
       # and System.halt at the end. The earlier Task-supervisor approach
       # could deadlock because Application.start was returning before
@@ -47,8 +42,18 @@ defmodule AodCli.Bootstrap do
     end
   end
 
-  defp run_main_on_start? do
-    Application.get_env(:aod_cli, :run_main_on_start, false)
+  # Three contexts to distinguish:
+  #   * dev/test/iex      — Mix is loaded as an OTP app
+  #   * CLI release       — Mix not loaded; agent_on_demand not loaded
+  #   * server release    — Mix not loaded; agent_on_demand IS loaded
+  #     (the server release bundles aod_cli for AodCli.Substitution)
+  # We only run main in the CLI release.
+  #
+  # Burrito doesn't propagate `RELEASE_NAME` to the runtime env, so an
+  # env-var or config-flag gate (set in runtime.exs) ends up dormant.
+  # Inspecting loaded applications works regardless.
+  defp cli_release? do
+    Application.spec(:mix) == nil and Application.spec(:agent_on_demand) == nil
   end
 
   defp read_argv do

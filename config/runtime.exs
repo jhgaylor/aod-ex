@@ -1,13 +1,5 @@
 import Config
 
-# CLI release: tell AodCli.Bootstrap to actually run AodCli.main on
-# Application.start. The server release (and dev/test) leaves this
-# unset so the CLI doesn't auto-run when aod_cli is loaded for its
-# AodCli.Substitution module.
-if System.get_env("RELEASE_NAME") == "aod" do
-  config :aod_cli, run_main_on_start: true
-end
-
 # Load a local .env file in dev/test for convenience. Existing System env
 # wins, so this only fills in unset vars.
 env_path = Path.join(File.cwd!(), ".env")
