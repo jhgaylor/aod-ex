@@ -1,0 +1,22 @@
+# Per-SDK build artifacts. Each SDK's own directory has its own
+# language-specific `.gitignore` if needed, but this catches the
+# common ones.
+
+# Elixir
+elixir/_build/
+elixir/deps/
+elixir/.elixir_ls/
+
+# Python
+python/**/__pycache__/
+python/.venv/
+python/dist/
+python/**/*.egg-info/
+
+# TypeScript / Node
+typescript/dist/
+typescript/node_modules/
+typescript/package-lock.json
+
+# Go
+# (build output goes elsewhere by default)
