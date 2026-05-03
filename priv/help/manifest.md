@@ -84,9 +84,12 @@ Errors per-resource go to stderr but don't stop the run; other resources still a
 
 Re-applying the same file is a no-op (every resource shows `~` because we always PUT, but the spec doesn't change). Useful for CI: keep `aod.yml` in source control, run `aod apply -f aod.yml` from your deploy pipeline.
 
-## Apply-time substitution (so you can commit `aod.yml`)
+## Apply-time secret resolution (so you can commit `aod.yml`)
 
-Secret values in `spec.secrets` accept `${VAR}` references that get resolved at **apply time** from your local environment, or from `--var KEY=VAL` flags on the command line:
+Secret values in `spec.secrets` accept two kinds of references that get resolved at **apply time** before any DB write:
+
+- `${VAR}` — substituted from your local environment, or from `--var KEY=VAL` flags.
+- `op://<vault>/<item>/<field>` — resolved via the [1Password CLI](https://developer.1password.com/docs/cli/get-started). Authentication (biometric unlock, session) is handled entirely by `op`; aod never sees your 1Password credentials.
 
 ```yaml
 ---
@@ -96,8 +99,9 @@ metadata:
   name: ravi-hq
 spec:
   secrets:
-    GITHUB_TOKEN: ${GH_PAT}      # ← `$GH_PAT` from your shell
-    POSTHOG_API_KEY: ${POSTHOG}  # ← `$POSTHOG` from your shell
+    GITHUB_TOKEN: ${GH_PAT}                          # ← from $GH_PAT at apply time
+    POSTHOG_API_KEY: op://Work/PostHog/api_key       # ← resolved via 1Password CLI
+    ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key # ← composes: ${VAR} then op
 ---
 apiVersion: aod/v1
 kind: Vault
@@ -105,7 +109,7 @@ metadata:
   name: alice
 spec:
   secrets:
-    GITHUB_TOKEN: ${ALICE_GH_PAT}
+    GITHUB_TOKEN: op://Personal/GitHub/token
 ```
 
 Run with:
@@ -120,7 +124,9 @@ GH_PAT=ghp_... POSTHOG=phc_... ALICE_GH_PAT=ghp_alice... \
 
 Flags win over env vars when both are set. Use `$${VAR}` to write through a literal `${VAR}` (rare).
 
-If a referenced var is missing, apply aborts before touching anything and lists **every** missing name across the manifest at once, so you can `export` them in one shot:
+### Failure modes
+
+Both kinds of resolution collect failures across the whole manifest and abort before any DB write — so you fix everything in one pass:
 
 ```
 apply-time substitution failed — set these in the env or pass --var KEY=VAL:
@@ -128,4 +134,14 @@ apply-time substitution failed — set these in the env or pass --var KEY=VAL:
   alice: ALICE_GH_PAT
 ```
 
-Apply-time substitution is **scoped to `spec.secrets`** only. Everything else in the manifest (agent system prompts, `mcp_servers` headers, etc.) is left literal — `${VAR}` references in those positions are resolved by the **provision-time** substitution layer when a conversation starts. Two layers, two scopes, one syntax.
+```
+apply-time op:// resolution failed (try `op signin`?):
+  ravi-hq:
+    POSTHOG_API_KEY (op://Work/PostHog/api_key): [ERROR] ... session expired
+```
+
+If `op` itself isn't installed, you'll see install instructions linking to https://developer.1password.com/docs/cli/get-started. The two phases run in order — `${VAR}` first, then `op://` — so a value like `op://${OP_VAULT}/Anthropic/key` works.
+
+### Scope
+
+Apply-time resolution is **scoped to `spec.secrets`** only. Everything else in the manifest (agent system prompts, `mcp_servers` headers, etc.) is left literal — `${VAR}` references in those positions are resolved by the **provision-time** substitution layer when a conversation starts. Two layers, two scopes, one syntax.

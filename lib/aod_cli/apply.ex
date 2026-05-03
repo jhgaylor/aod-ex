@@ -23,30 +23,39 @@ defmodule AodCli.Apply do
         # for Environment / Vault: optional `secrets: { KEY: value }` map
         #   upserted as secrets after the row itself is reconciled
 
-  ## Apply-time substitution
+  ## Apply-time secret resolution
 
-  So that `aod.yml` can be safely committed, `${VAR}` references in
-  `spec.secrets` values are resolved **at apply time** from the
-  operator's local environment and any `--var KEY=VAL` flags (flags
-  win on collision). Use `$${VAR}` for the literal `${VAR}`. The
-  resolved value is what lands in the DB.
+  So that `aod.yml` can be safely committed, secret values in
+  `spec.secrets` accept two kinds of references resolved **at apply
+  time** before any DB write:
+
+  - `${VAR}` — substituted from the operator's local env vars or
+    `--var KEY=VAL` flags (flags win on collision). `$${VAR}` writes
+    a literal `${VAR}`.
+  - `op://<vault>/<item>/<field>` — resolved by shelling out to the
+    1Password CLI (`op read --no-newline`). Authentication (biometric,
+    session) is handled entirely by `op`.
+
+  Both phases collect failures across the whole manifest and exit
+  with one message, so the operator fixes their shell exports / runs
+  `op signin` once.
 
       Environment:
         secrets:
-          GITHUB_TOKEN: ${GH_PAT}     # ← resolved from $GH_PAT at apply time
+          GITHUB_TOKEN: ${GH_PAT}                          # local env
+          POSTHOG_API_KEY: op://Work/PostHog/api_key       # 1Password
+          ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key   # both: ${VAR} resolved first, then op
 
   Other manifest fields (e.g. agent `mcp_servers` headers) are left
   literal here and resolved by the provision-time substitution layer
-  at sprite spawn — separate concern.
-
-  Missing references abort the apply with every name listed at once,
-  so you can `export` them all and re-run.
+  at sprite spawn — separate concern, same `${VAR}` syntax.
 
   Exit code: 0 on success, 1 if any resource fails to apply.
   """
 
   alias AgentOnDemand.Substitution
   alias AodCli.Api
+  alias AodCli.OnePassword
 
   def dispatch(args) do
     {opts, positional, _} =
@@ -75,8 +84,7 @@ defmodule AodCli.Apply do
       AodCli.die("unsupported kinds in #{path}: " <> Enum.map_join(unknown, ", ", & &1["kind"]))
     end
 
-    envs = expand_apply_secrets(envs, apply_vars)
-    vaults = expand_apply_secrets(vaults, apply_vars)
+    {envs, vaults} = expand_apply_secrets(envs, vaults, apply_vars)
 
     env_id_by_name =
       envs
@@ -94,29 +102,53 @@ defmodule AodCli.Apply do
     :ok
   end
 
-  # Apply-time substitution. Scoped to `spec.secrets` map values on
-  # Environment + Vault docs. Resolves `${VAR}` from the operator's
-  # local env vars + any `--var KEY=VAL` flags (flags win on
-  # collision). Other manifest fields are left literal — those go
-  # through provision-time substitution at sprite spawn.
+  # Apply-time secret value resolution. Scoped to `spec.secrets` map
+  # values on Environment + Vault docs. Two phases run across both
+  # lists together so a failure dump shows everything at once instead
+  # of trickling out as you fix things.
   #
-  # If any doc references an unresolvable name, we collect all of them
-  # across the manifest and exit with a single message so the operator
-  # fixes their shell exports in one pass.
-  defp expand_apply_secrets(docs, vars) do
-    {expanded, errors} =
-      Enum.reduce(docs, {[], []}, fn doc, {acc_docs, acc_errors} ->
-        case substitute_doc_secrets(doc, vars) do
-          {:ok, new_doc} -> {[new_doc | acc_docs], acc_errors}
-          {:error, name, missing} -> {[doc | acc_docs], [{name, missing} | acc_errors]}
+  #   Phase 1: ${VAR} substitution against the operator's local env
+  #            vars + any `--var KEY=VAL` flags (flags win).
+  #   Phase 2: `op://vault/item/field` 1Password references — for any
+  #            value that comes out of phase 1 starting with `op://`,
+  #            shell out to the local `op` CLI to resolve it.
+  #
+  # Other manifest fields stay literal — those go through provision-
+  # time substitution at sprite spawn. Phase 2 only invokes `op` when
+  # the manifest actually contains an `op://...` value, so manifests
+  # without 1Password references don't require `op` to be installed.
+  defp expand_apply_secrets(envs, vaults, vars) do
+    n_envs = length(envs)
+    all = envs ++ vaults
+
+    all =
+      all
+      |> run_phase(&substitute_doc_secrets(&1, vars))
+      |> die_on_errors(:missing_vars)
+      |> run_phase(&resolve_doc_op_refs/1)
+      |> die_on_errors(:op_failures)
+
+    Enum.split(all, n_envs)
+  end
+
+  # Apply `f` to each doc; return either `{:ok, [doc]}` (all succeeded)
+  # or `{:error, [{name, details}]}` (collected per-resource).
+  defp run_phase(docs, f) do
+    {acc_docs, errors} =
+      Enum.reduce(docs, {[], []}, fn doc, {acc_docs, errs} ->
+        case f.(doc) do
+          {:ok, new_doc} -> {[new_doc | acc_docs], errs}
+          {:error, name, details} -> {[doc | acc_docs], [{name, details} | errs]}
         end
       end)
 
-    if errors != [] do
-      AodCli.die(format_apply_errors(errors))
-    end
+    if errors == [], do: {:ok, Enum.reverse(acc_docs)}, else: {:error, Enum.reverse(errors)}
+  end
 
-    Enum.reverse(expanded)
+  defp die_on_errors({:ok, docs}, _kind), do: docs
+
+  defp die_on_errors({:error, errors}, kind) do
+    AodCli.die(format_phase_errors(kind, errors))
   end
 
   defp substitute_doc_secrets(doc, vars) do
@@ -136,15 +168,68 @@ defmodule AodCli.Apply do
     end
   end
 
-  defp format_apply_errors(errors) do
+  defp resolve_doc_op_refs(doc) do
+    case get_in(doc, ["spec", "secrets"]) do
+      nil ->
+        {:ok, doc}
+
+      %{} = secrets ->
+        case resolve_secrets_op_refs(secrets) do
+          {:ok, resolved} ->
+            {:ok, put_in(doc, ["spec", "secrets"], resolved)}
+
+          {:error, failures} ->
+            name = get_in(doc, ["metadata", "name"]) || "<unnamed>"
+            {:error, name, failures}
+        end
+    end
+  end
+
+  defp resolve_secrets_op_refs(secrets) do
+    {resolved, failures} =
+      Enum.reduce(secrets, {%{}, []}, fn {k, v}, {acc, fails} ->
+        cond do
+          not is_binary(v) ->
+            {Map.put(acc, k, v), fails}
+
+          OnePassword.ref?(v) ->
+            case OnePassword.read(v) do
+              {:ok, plaintext} -> {Map.put(acc, k, plaintext), fails}
+              {:error, reason} -> {acc, [{k, v, reason} | fails]}
+            end
+
+          true ->
+            {Map.put(acc, k, v), fails}
+        end
+      end)
+
+    case failures do
+      [] -> {:ok, resolved}
+      list -> {:error, Enum.reverse(list)}
+    end
+  end
+
+  defp format_phase_errors(:missing_vars, errors) do
     body =
-      errors
-      |> Enum.reverse()
-      |> Enum.map_join("\n", fn {name, missing} ->
+      Enum.map_join(errors, "\n", fn {name, missing} ->
         "  #{name}: " <> Enum.join(missing, ", ")
       end)
 
     "apply-time substitution failed — set these in the env or pass --var KEY=VAL:\n" <> body
+  end
+
+  defp format_phase_errors(:op_failures, errors) do
+    body =
+      Enum.map_join(errors, "\n", fn {name, failures} ->
+        rows =
+          Enum.map_join(failures, "\n", fn {k, ref, reason} ->
+            "    #{k} (#{ref}): " <> OnePassword.format_error(reason)
+          end)
+
+        "  #{name}:\n" <> rows
+      end)
+
+    "apply-time op:// resolution failed (try `op signin`?):\n" <> body
   end
 
   @doc false
