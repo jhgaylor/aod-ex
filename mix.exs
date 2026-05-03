@@ -48,7 +48,12 @@ defmodule AoD.Umbrella.MixProject do
         # reads argv, dispatches AodCli.main/1, and halts.
         applications: [aod_cli: :permanent, runtime_tools: :permanent],
         steps: [:assemble, &Burrito.wrap/1],
-        burrito: burrito_targets()
+        # CLI has no NIFs to recompile (jason / req / yaml_elixir /
+        # sprites are all pure-elixir). skip_nifs avoids Burrito
+        # iterating sibling-app deps like exqlite that aren't in this
+        # release's lib tree (which would crash with a `mkdir /priv`
+        # permission error on a missing MIX_APP_PATH).
+        burrito: burrito_targets(skip_nifs: true)
       ],
       aod_server: [
         # Full Phoenix release. Also bundles aod_cli (for AodCli.Substitution
@@ -60,20 +65,24 @@ defmodule AoD.Umbrella.MixProject do
     ]
   end
 
-  defp burrito_targets do
+  defp burrito_targets(opts \\ []) do
+    skip_nifs = Keyword.get(opts, :skip_nifs, false)
+
     [
       targets: [
         linux: [
           os: :linux,
           cpu: :x86_64,
           custom_erts:
-            "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5"
+            "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5",
+          qualifiers: [skip_nifs: skip_nifs]
         ],
         macos: [
           os: :darwin,
           cpu: :aarch64,
           custom_erts:
-            "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5"
+            "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5",
+          qualifiers: [skip_nifs: skip_nifs]
         ]
       ],
       debug: Mix.env() != :prod
