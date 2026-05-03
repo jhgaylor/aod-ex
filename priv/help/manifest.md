@@ -84,6 +84,48 @@ Errors per-resource go to stderr but don't stop the run; other resources still a
 
 Re-applying the same file is a no-op (every resource shows `~` because we always PUT, but the spec doesn't change). Useful for CI: keep `aod.yml` in source control, run `aod apply -f aod.yml` from your deploy pipeline.
 
-## Heads up: secrets
+## Apply-time substitution (so you can commit `aod.yml`)
 
-The shape we accept doesn't yet have a way to reference secrets without inlining them. If your manifest contains MCP server bearer tokens, **don't commit it** — `aod.yml` is in the project's default `.gitignore`. A `${ENV_VAR}` substitution pass is on the wishlist.
+Secret values in `spec.secrets` accept `${VAR}` references that get resolved at **apply time** from your local environment, or from `--var KEY=VAL` flags on the command line:
+
+```yaml
+---
+apiVersion: aod/v1
+kind: Environment
+metadata:
+  name: ravi-hq
+spec:
+  secrets:
+    GITHUB_TOKEN: ${GH_PAT}      # ← `$GH_PAT` from your shell
+    POSTHOG_API_KEY: ${POSTHOG}  # ← `$POSTHOG` from your shell
+---
+apiVersion: aod/v1
+kind: Vault
+metadata:
+  name: alice
+spec:
+  secrets:
+    GITHUB_TOKEN: ${ALICE_GH_PAT}
+```
+
+Run with:
+
+```bash
+GH_PAT=ghp_... POSTHOG=phc_... ALICE_GH_PAT=ghp_alice... \
+  ./aod apply -f aod.yml
+
+# or pass values inline:
+./aod apply -f aod.yml --var GH_PAT=ghp_... --var POSTHOG=phc_...
+```
+
+Flags win over env vars when both are set. Use `$${VAR}` to write through a literal `${VAR}` (rare).
+
+If a referenced var is missing, apply aborts before touching anything and lists **every** missing name across the manifest at once, so you can `export` them in one shot:
+
+```
+apply-time substitution failed — set these in the env or pass --var KEY=VAL:
+  ravi-hq: GH_PAT, POSTHOG
+  alice: ALICE_GH_PAT
+```
+
+Apply-time substitution is **scoped to `spec.secrets`** only. Everything else in the manifest (agent system prompts, `mcp_servers` headers, etc.) is left literal — `${VAR}` references in those positions are resolved by the **provision-time** substitution layer when a conversation starts. Two layers, two scopes, one syntax.

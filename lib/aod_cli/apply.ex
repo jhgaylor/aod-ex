@@ -23,14 +23,47 @@ defmodule AodCli.Apply do
         # for Environment / Vault: optional `secrets: { KEY: value }` map
         #   upserted as secrets after the row itself is reconciled
 
+  ## Apply-time substitution
+
+  So that `aod.yml` can be safely committed, `${VAR}` references in
+  `spec.secrets` values are resolved **at apply time** from the
+  operator's local environment and any `--var KEY=VAL` flags (flags
+  win on collision). Use `$${VAR}` for the literal `${VAR}`. The
+  resolved value is what lands in the DB.
+
+      Environment:
+        secrets:
+          GITHUB_TOKEN: ${GH_PAT}     # ← resolved from $GH_PAT at apply time
+
+  Other manifest fields (e.g. agent `mcp_servers` headers) are left
+  literal here and resolved by the provision-time substitution layer
+  at sprite spawn — separate concern.
+
+  Missing references abort the apply with every name listed at once,
+  so you can `export` them all and re-run.
+
   Exit code: 0 on success, 1 if any resource fails to apply.
   """
 
+  alias AgentOnDemand.Substitution
   alias AodCli.Api
 
-  def dispatch(["-f", path]), do: dispatch(["--file", path])
+  def dispatch(args) do
+    {opts, positional, _} =
+      OptionParser.parse(args,
+        strict: [file: :string, var: :keep],
+        aliases: [f: :file]
+      )
 
-  def dispatch(["--file", path]) do
+    path =
+      opts[:file] ||
+        case positional do
+          [p | _] -> p
+          _ -> AodCli.die("usage: aod apply -f <path-to-yaml> [--var KEY=VAL ...]")
+        end
+
+    apply_vars = build_apply_vars(Keyword.get_values(opts, :var))
+
     docs =
       path
       |> File.read!()
@@ -41,6 +74,9 @@ defmodule AodCli.Apply do
     if unknown != [] do
       AodCli.die("unsupported kinds in #{path}: " <> Enum.map_join(unknown, ", ", & &1["kind"]))
     end
+
+    envs = expand_apply_secrets(envs, apply_vars)
+    vaults = expand_apply_secrets(vaults, apply_vars)
 
     env_id_by_name =
       envs
@@ -58,8 +94,73 @@ defmodule AodCli.Apply do
     :ok
   end
 
-  def dispatch(_) do
-    AodCli.die("usage: aod apply -f <path-to-yaml>")
+  # Apply-time substitution. Scoped to `spec.secrets` map values on
+  # Environment + Vault docs. Resolves `${VAR}` from the operator's
+  # local env vars + any `--var KEY=VAL` flags (flags win on
+  # collision). Other manifest fields are left literal — those go
+  # through provision-time substitution at sprite spawn.
+  #
+  # If any doc references an unresolvable name, we collect all of them
+  # across the manifest and exit with a single message so the operator
+  # fixes their shell exports in one pass.
+  defp expand_apply_secrets(docs, vars) do
+    {expanded, errors} =
+      Enum.reduce(docs, {[], []}, fn doc, {acc_docs, acc_errors} ->
+        case substitute_doc_secrets(doc, vars) do
+          {:ok, new_doc} -> {[new_doc | acc_docs], acc_errors}
+          {:error, name, missing} -> {[doc | acc_docs], [{name, missing} | acc_errors]}
+        end
+      end)
+
+    if errors != [] do
+      AodCli.die(format_apply_errors(errors))
+    end
+
+    Enum.reverse(expanded)
+  end
+
+  defp substitute_doc_secrets(doc, vars) do
+    case get_in(doc, ["spec", "secrets"]) do
+      nil ->
+        {:ok, doc}
+
+      %{} = secrets ->
+        case Substitution.apply(secrets, vars) do
+          {:ok, sub} ->
+            {:ok, put_in(doc, ["spec", "secrets"], sub)}
+
+          {:error, {:missing_vars, missing}} ->
+            name = get_in(doc, ["metadata", "name"]) || "<unnamed>"
+            {:error, name, missing}
+        end
+    end
+  end
+
+  defp format_apply_errors(errors) do
+    body =
+      errors
+      |> Enum.reverse()
+      |> Enum.map_join("\n", fn {name, missing} ->
+        "  #{name}: " <> Enum.join(missing, ", ")
+      end)
+
+    "apply-time substitution failed — set these in the env or pass --var KEY=VAL:\n" <> body
+  end
+
+  @doc false
+  def build_apply_vars(var_args) do
+    base = Map.new(System.get_env(), fn {k, v} -> {to_string(k), to_string(v)} end)
+
+    overlays = Map.new(var_args, &parse_var_flag/1)
+
+    Map.merge(base, overlays)
+  end
+
+  defp parse_var_flag(s) do
+    case String.split(s, "=", parts: 2) do
+      [k, v] when k != "" -> {k, v}
+      _ -> AodCli.die("--var must be KEY=VALUE, got: #{inspect(s)}")
+    end
   end
 
   # ── parsing ────────────────────────────────────────────────────────
