@@ -75,14 +75,14 @@ defmodule AoD.Umbrella.MixProject do
           cpu: :x86_64,
           custom_erts:
             "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5",
-          qualifiers: [skip_nifs: skip_nifs]
+          skip_nifs: skip_nifs
         ],
         macos: [
           os: :darwin,
           cpu: :aarch64,
           custom_erts:
             "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5",
-          qualifiers: [skip_nifs: skip_nifs]
+          skip_nifs: skip_nifs
         ]
       ],
       debug: Mix.env() != :prod
