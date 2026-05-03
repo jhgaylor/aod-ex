@@ -155,6 +155,17 @@ SPRITES_TOKEN=... mix aod.up
 
 The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.down <sprite-name>`.
 
+### Upgrade in place
+
+Re-run with the same `--name` to swap the binary on an existing deployment without losing state:
+
+```bash
+SPRITES_TOKEN=... MIX_ENV=prod mix release
+SPRITES_TOKEN=... mix aod.up --name <existing-name>
+```
+
+The mix task detects the existing sprite, recovers `ADMIN_TOKEN` / `SECRETS_KEY` / `SECRET_KEY_BASE` from the `start.sh` it wrote on first deploy, pushes the new binary on top of the old one, and recreates the `sprite-env` service. The SQLite DB at `/opt/aod/data/aod.db` and the encryption key are preserved, so existing agents/environments/vaults/conversations survive.
+
 Requires Zig 0.15.2 on `PATH` for Burrito's cross-build, and a few Burrito workarounds documented in [docs/deploy.md](docs/deploy.md) — they're paid-down candidates, not load-bearing forever.
 
 ## Production deploy (Render)

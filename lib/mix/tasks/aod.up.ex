@@ -1,25 +1,44 @@
 defmodule Mix.Tasks.Aod.Up do
   @moduledoc """
-  One-shot deploy of AoD into a Sprite. Proof of concept for `aod up`.
+  Deploy AoD into a Sprite, or upgrade an existing deployment in place.
 
-  Reads `SPRITES_TOKEN` from env (or `.env`). Builds nothing — assumes the
-  Linux Burrito binary is at `burrito_out/agent_on_demand_linux`. Provisions
-  a sprite, makes its URL public, pushes the binary, sets env, starts it
-  detached. Polls the public URL until /health responds, then prints
-  the URL + admin token.
+  Reads `SPRITES_TOKEN` from env (or `.env`). Builds nothing — assumes
+  the Linux Burrito binary is at `burrito_out/agent_on_demand_linux`.
 
-  Usage:
+  ## Deploy (fresh)
+
+  Without `--name`, or with a `--name` that doesn't exist yet at
+  sprites.dev, runs the full deploy: provision a sprite, generate
+  fresh secrets, push the binary, register the service, poll
+  `/health`, print the URL + admin token.
+
       SPRITES_TOKEN=... mix aod.up
-      SPRITES_TOKEN=... mix aod.up --name my-aod --keep
+      SPRITES_TOKEN=... mix aod.up --name my-aod
 
-  To tear down a deployment, use `mix aod.down <name>`.
+  ## Upgrade (in place)
+
+  When `--name` matches an existing sprite, runs the upgrade flow
+  instead: recover the secrets we wrote into `/opt/aod/start.sh` on
+  the original deploy, push the new binary on top of the old one,
+  rewrite `start.sh` (env shape may have evolved between releases),
+  recreate the `sprite-env` service so it picks up the new binary,
+  poll `/health`. The SQLite DB at `/opt/aod/data/aod.db` and the
+  encryption key are preserved, so existing agents/environments/
+  vaults/conversations survive the upgrade.
+
+      SPRITES_TOKEN=... mix aod.up --name my-aod   # → upgrade if exists
+
+  ## Tear down
+
+  Use `mix aod.down <name>`.
   """
   use Mix.Task
 
-  @shortdoc "Deploy AoD to a Sprite (proof)"
+  @shortdoc "Deploy AoD to a Sprite (or upgrade in place)"
 
   @binary_path "burrito_out/agent_on_demand_linux"
   @remote_binary "/opt/aod/aod"
+  @remote_start_sh "/opt/aod/start.sh"
   @remote_db "/opt/aod/data/aod.db"
   @port 4000
 
@@ -27,7 +46,7 @@ defmodule Mix.Tasks.Aod.Up do
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
-        strict: [name: :string, keep: :boolean, destroy: :string]
+        strict: [name: :string, destroy: :string]
       )
 
     Application.ensure_all_started(:req)
@@ -49,14 +68,19 @@ defmodule Mix.Tasks.Aod.Up do
 
         Mix.Tasks.Aod.Down.destroy(client, destroy)
 
+      name = opts[:name] ->
+        case Sprites.get_sprite(client, name) do
+          {:ok, _info} -> upgrade(client, name)
+          {:error, {:not_found, _}} -> deploy(client, name)
+          {:error, reason} -> Mix.raise("could not check sprite '#{name}': #{inspect(reason)}")
+        end
+
       true ->
-        deploy(client, opts)
+        deploy(client, "aod-host-#{:os.system_time(:second)}")
     end
   end
 
-  defp deploy(client, opts) do
-    name = opts[:name] || "aod-host-#{:os.system_time(:second)}"
-
+  defp deploy(client, name) do
     info("provisioning sprite '#{name}'...")
     {:ok, sprite} = Sprites.create(client, name)
 
@@ -65,7 +89,6 @@ defmodule Mix.Tasks.Aod.Up do
 
     info("looking up public hostname...")
     {:ok, sprite_info} = Sprites.get_sprite(client, name)
-    IO.inspect(sprite_info, label: "sprite_info", limit: :infinity)
     public_url = extract_public_url(sprite_info, @port) || raise("no public URL on sprite")
     info("public url: #{public_url}")
 
@@ -86,9 +109,9 @@ defmodule Mix.Tasks.Aod.Up do
 
     env = build_env(secrets, public_url)
 
-    info("writing /opt/aod/start.sh wrapper...")
+    info("writing #{@remote_start_sh} wrapper...")
     fs = Sprites.filesystem(sprite, "/")
-    :ok = Sprites.Filesystem.write(fs, "/opt/aod/start.sh", start_script(env), mode: 0o755)
+    :ok = Sprites.Filesystem.write(fs, @remote_start_sh, start_script(env), mode: 0o755)
 
     info("registering service via sprite-env (survives hibernation)...")
     # Delete any prior registration so re-runs are idempotent.
@@ -133,6 +156,111 @@ defmodule Mix.Tasks.Aod.Up do
       mix aod.down #{name}
     ============================================================
     """)
+  end
+
+  # In-place binary swap. Recovers the existing env (admin token,
+  # secrets key, etc.) from start.sh on the sprite so the freshly-
+  # pushed binary can decrypt the existing SQLite DB.
+  defp upgrade(client, name) do
+    info("upgrading sprite '#{name}' in place...")
+    sprite = Sprites.sprite(client, name)
+
+    info("recovering env from #{@remote_start_sh}...")
+    env = read_existing_env(sprite)
+
+    public_url =
+      env_get(env, "AOD_PUBLIC_URL") ||
+        Mix.raise("could not recover AOD_PUBLIC_URL from existing #{@remote_start_sh}")
+
+    admin_token = env_get(env, "ADMIN_TOKEN") || "<unchanged>"
+
+    info("pushing binary (#{File.stat!(@binary_path).size |> human_size}) to sprite...")
+    fs = Sprites.filesystem(sprite, "/")
+    binary = File.read!(@binary_path)
+    :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
+    info("binary pushed.")
+
+    info("rewriting #{@remote_start_sh} (env shape may have changed)...")
+    :ok = Sprites.Filesystem.write(fs, @remote_start_sh, start_script(env), mode: 0o755)
+
+    info("recreating sprite-env service so it picks up the new binary...")
+    {_, _} = Sprites.cmd(sprite, "/.sprite/bin/sprite-env", ["services", "delete", "aod"])
+
+    {out, code} =
+      Sprites.cmd(
+        sprite,
+        "/.sprite/bin/sprite-env",
+        [
+          "services",
+          "create",
+          "aod",
+          "--cmd",
+          @remote_start_sh,
+          "--http-port",
+          Integer.to_string(@port),
+          "--no-stream"
+        ],
+        timeout: 30_000,
+        stderr_to_stdout: true
+      )
+
+    if code != 0, do: raise("sprite-env services create failed (code #{code}):\n#{out}")
+    info("service registered: #{String.trim(out)}")
+
+    info("polling /health...")
+    wait_for_health(public_url)
+
+    IO.puts("""
+
+    ============================================================
+    AoD upgraded!
+
+      URL:           #{public_url}
+      ADMIN_TOKEN:   #{admin_token}
+      Sprite name:   #{name}
+
+    ============================================================
+    """)
+  end
+
+  defp read_existing_env(sprite) do
+    {output, code} =
+      Sprites.cmd(sprite, "cat", [@remote_start_sh], stderr_to_stdout: true)
+
+    if code != 0 do
+      Mix.raise("could not read #{@remote_start_sh} (exit #{code}):\n#{output}")
+    end
+
+    parse_start_sh(output)
+  end
+
+  # We wrote start.sh ourselves with `export KEY='value'` lines, where
+  # any embedded `'` was encoded as `'"'"'` (see shell_quote/1). So
+  # the parser is the inverse — pull out KEY/value pairs and unwrap.
+  defp parse_start_sh(content) do
+    content
+    |> String.split("\n")
+    |> Enum.flat_map(fn line ->
+      case Regex.run(~r/^export ([A-Z_][A-Z0-9_]*)=(.*)$/, String.trim(line)) do
+        [_, key, value] -> [{key, unquote_shell(value)}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp unquote_shell("'" <> rest) do
+    rest
+    |> String.replace_suffix("'", "")
+    |> String.replace(~S('"'"'), "'")
+  end
+
+  defp unquote_shell(s), do: s
+
+  defp env_get(env, key) do
+    case List.keyfind(env, key, 0) do
+      {_, v} -> v
+      nil -> nil
+    end
   end
 
   defp start_script(env) do
