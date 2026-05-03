@@ -5,13 +5,16 @@ defmodule AoD.Burrito.CrossVersionNifCopy do
 
   Stock `CopyERTS` overwrites NIFs only when the lib dir name matches exactly
   (e.g. `lib/crypto-5.8.2/priv/lib/crypto.so`). If the assembled release has
-  `crypto-5.8.3` (because we built locally on OTP 28.5) and the downloaded
-  target ERTS has `crypto-5.8.2`, the linux `.so` lands in a parallel
-  `lib/crypto-5.8.2/` dir and the runtime still loads from `lib/crypto-5.8.3/`
-  — which holds the macOS arm64 NIF — and dies with `Exec format error`.
+  `crypto-5.8.3` (because we built locally on a different OTP) and the
+  downloaded target ERTS has `crypto-5.8.2`, the target NIF lands in a
+  parallel `lib/crypto-5.8.2/` dir and the runtime still loads from
+  `lib/crypto-5.8.3/` — which holds the wrong-platform NIF — and dies with
+  `Exec format error` (Linux) or `Function not found …` (macOS, when the
+  NIF interface itself drifts between OTP versions).
 
-  This step copies each NIF in the unpacked ERTS into every matching `<app>-*`
-  dir in the release, matching by app name rather than exact version.
+  This step copies each NIF (`.so` for Linux, `.dylib` for macOS) in the
+  unpacked target ERTS into every matching `<app>-*` dir in the release,
+  matching by app name rather than exact version.
 
   Retired by aligning local OTP to the target ERTS version. See `docs/deploy.md`.
   """
@@ -21,20 +24,27 @@ defmodule AoD.Burrito.CrossVersionNifCopy do
   alias Burrito.Builder.Target
   alias Burrito.Builder.Log
 
+  @nif_extensions [".so", ".dylib"]
+
   @impl Burrito.Builder.Step
   def execute(%Context{target: %Target{erts_source: {:local_unpacked, [path: erts_path]}}} = ctx) do
-    src_libs = Path.wildcard(Path.join([erts_path, "**/lib/*-*/priv/lib/*.so"]))
+    src_libs =
+      [erts_path, "**", "lib", "*-*", "priv", "lib", "*"]
+      |> Path.join()
+      |> Path.wildcard()
+      |> Enum.filter(&(Path.extname(&1) in @nif_extensions))
+
     dest_lib_root = Path.join(ctx.work_dir, "lib") |> Path.expand()
 
     Enum.each(src_libs, fn src ->
       app_with_vsn = src |> Path.relative_to(erts_path) |> Path.split() |> Enum.at(-4)
       [app | _] = String.split(app_with_vsn, "-")
-      so_name = Path.basename(src)
+      lib_name = Path.basename(src)
 
       matching_dirs = dest_lib_root |> Path.join("#{app}-*") |> Path.wildcard()
 
       for dir <- matching_dirs, Path.basename(dir) != app_with_vsn do
-        dest = Path.join([dir, "priv", "lib", so_name])
+        dest = Path.join([dir, "priv", "lib", lib_name])
         File.mkdir_p!(Path.dirname(dest))
         _ = File.rm(dest)
         File.copy!(src, dest)
@@ -42,7 +52,7 @@ defmodule AoD.Burrito.CrossVersionNifCopy do
 
         Log.warning(
           :step,
-          "Cross-version NIF: #{so_name} #{app_with_vsn} -> #{Path.basename(dir)}"
+          "Cross-version NIF: #{lib_name} #{app_with_vsn} -> #{Path.basename(dir)}"
         )
       end
     end)
