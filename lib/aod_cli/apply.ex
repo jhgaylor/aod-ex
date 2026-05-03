@@ -32,19 +32,26 @@ defmodule AodCli.Apply do
   - `${VAR}` — substituted from the operator's local env vars or
     `--var KEY=VAL` flags (flags win on collision). `$${VAR}` writes
     a literal `${VAR}`.
-  - `op://<vault>/<item>/<field>` — resolved by shelling out to the
-    1Password CLI (`op read --no-newline`). Authentication (biometric,
-    session) is handled entirely by `op`.
+  - `op://<vault>/<item>/<field>` — resolved via the 1Password CLI
+    (`op`). Auth handled by `op` (biometric, session).
+  - `bws://<secret-uuid>` — resolved via the Bitwarden Secrets Manager
+    CLI (`bws`). Auth via `BWS_ACCESS_TOKEN` (consumed by `bws`).
+
+  External-reference resolution is dispatched by URI scheme through
+  `AodCli.SecretResolvers`. To add another provider (Vault, AWS
+  Secrets Manager, Doppler, ...), implement `AodCli.SecretResolver`
+  and register the module.
 
   Both phases collect failures across the whole manifest and exit
-  with one message, so the operator fixes their shell exports / runs
-  `op signin` once.
+  with one message, so the operator fixes their shell exports /
+  signs in / sets the access token once.
 
       Environment:
         secrets:
-          GITHUB_TOKEN: ${GH_PAT}                          # local env
-          POSTHOG_API_KEY: op://Work/PostHog/api_key       # 1Password
-          ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key   # both: ${VAR} resolved first, then op
+          GITHUB_TOKEN: ${GH_PAT}                       # local env
+          POSTHOG_API_KEY: op://Work/PostHog/api_key    # 1Password
+          NPM_TOKEN: bws://abc-123-uuid                 # Bitwarden Secrets Manager
+          ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key  # ${VAR} first, then op
 
   Other manifest fields (e.g. agent `mcp_servers` headers) are left
   literal here and resolved by the provision-time substitution layer
@@ -55,7 +62,7 @@ defmodule AodCli.Apply do
 
   alias AgentOnDemand.Substitution
   alias AodCli.Api
-  alias AodCli.OnePassword
+  alias AodCli.SecretResolvers
 
   def dispatch(args) do
     {opts, positional, _} =
@@ -125,8 +132,8 @@ defmodule AodCli.Apply do
       all
       |> run_phase(&substitute_doc_secrets(&1, vars))
       |> die_on_errors(:missing_vars)
-      |> run_phase(&resolve_doc_op_refs/1)
-      |> die_on_errors(:op_failures)
+      |> run_phase(&resolve_doc_external_refs/1)
+      |> die_on_errors(:resolver_failures)
 
     Enum.split(all, n_envs)
   end
@@ -168,13 +175,13 @@ defmodule AodCli.Apply do
     end
   end
 
-  defp resolve_doc_op_refs(doc) do
+  defp resolve_doc_external_refs(doc) do
     case get_in(doc, ["spec", "secrets"]) do
       nil ->
         {:ok, doc}
 
       %{} = secrets ->
-        case resolve_secrets_op_refs(secrets) do
+        case resolve_secrets_external_refs(secrets) do
           {:ok, resolved} ->
             {:ok, put_in(doc, ["spec", "secrets"], resolved)}
 
@@ -185,21 +192,18 @@ defmodule AodCli.Apply do
     end
   end
 
-  defp resolve_secrets_op_refs(secrets) do
+  defp resolve_secrets_external_refs(secrets) do
     {resolved, failures} =
       Enum.reduce(secrets, {%{}, []}, fn {k, v}, {acc, fails} ->
-        cond do
-          not is_binary(v) ->
+        case SecretResolvers.for_value(v) do
+          nil ->
             {Map.put(acc, k, v), fails}
 
-          OnePassword.ref?(v) ->
-            case OnePassword.read(v) do
+          mod ->
+            case mod.read(v) do
               {:ok, plaintext} -> {Map.put(acc, k, plaintext), fails}
-              {:error, reason} -> {acc, [{k, v, reason} | fails]}
+              {:error, reason} -> {acc, [{k, v, mod, reason} | fails]}
             end
-
-          true ->
-            {Map.put(acc, k, v), fails}
         end
       end)
 
@@ -218,18 +222,18 @@ defmodule AodCli.Apply do
     "apply-time substitution failed — set these in the env or pass --var KEY=VAL:\n" <> body
   end
 
-  defp format_phase_errors(:op_failures, errors) do
+  defp format_phase_errors(:resolver_failures, errors) do
     body =
       Enum.map_join(errors, "\n", fn {name, failures} ->
         rows =
-          Enum.map_join(failures, "\n", fn {k, ref, reason} ->
-            "    #{k} (#{ref}): " <> OnePassword.format_error(reason)
+          Enum.map_join(failures, "\n", fn {k, ref, mod, reason} ->
+            "    #{k} (#{ref}): " <> mod.format_error(reason)
           end)
 
         "  #{name}:\n" <> rows
       end)
 
-    "apply-time op:// resolution failed (try `op signin`?):\n" <> body
+    "apply-time secret resolution failed:\n" <> body
   end
 
   @doc false

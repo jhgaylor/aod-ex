@@ -89,7 +89,10 @@ Re-applying the same file is a no-op (every resource shows `~` because we always
 Secret values in `spec.secrets` accept two kinds of references that get resolved at **apply time** before any DB write:
 
 - `${VAR}` — substituted from your local environment, or from `--var KEY=VAL` flags.
-- `op://<vault>/<item>/<field>` — resolved via the [1Password CLI](https://developer.1password.com/docs/cli/get-started). Authentication (biometric unlock, session) is handled entirely by `op`; aod never sees your 1Password credentials.
+- `op://<vault>/<item>/<field>` — resolved via the [1Password CLI](https://developer.1password.com/docs/cli/get-started). Auth (biometric unlock, session) handled by `op`.
+- `bws://<secret-uuid>` — resolved via the [Bitwarden Secrets Manager CLI](https://bitwarden.com/help/secrets-manager-cli/). Auth via `BWS_ACCESS_TOKEN` (consumed by `bws`).
+
+Add another provider (Vault, AWS Secrets Manager, Doppler, ...) by implementing `AodCli.SecretResolver` and registering the module — ~30 lines per provider.
 
 ```yaml
 ---
@@ -99,9 +102,10 @@ metadata:
   name: ravi-hq
 spec:
   secrets:
-    GITHUB_TOKEN: ${GH_PAT}                          # ← from $GH_PAT at apply time
-    POSTHOG_API_KEY: op://Work/PostHog/api_key       # ← resolved via 1Password CLI
-    ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key # ← composes: ${VAR} then op
+    GITHUB_TOKEN: ${GH_PAT}                              # ← from $GH_PAT at apply time
+    POSTHOG_API_KEY: op://Work/PostHog/api_key           # ← resolved via 1Password CLI
+    NPM_TOKEN: bws://be8e0ad8-1234-5678-90ab-cdef01234567   # ← Bitwarden Secrets Manager
+    ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key     # ← composes: ${VAR} then op
 ---
 apiVersion: aod/v1
 kind: Vault
@@ -135,12 +139,13 @@ apply-time substitution failed — set these in the env or pass --var KEY=VAL:
 ```
 
 ```
-apply-time op:// resolution failed (try `op signin`?):
+apply-time secret resolution failed:
   ravi-hq:
     POSTHOG_API_KEY (op://Work/PostHog/api_key): [ERROR] ... session expired
+    NPM_TOKEN (bws://abc-123): Error: invalid access token
 ```
 
-If `op` itself isn't installed, you'll see install instructions linking to https://developer.1password.com/docs/cli/get-started. The two phases run in order — `${VAR}` first, then `op://` — so a value like `op://${OP_VAULT}/Anthropic/key` works.
+If the relevant CLI isn't installed, you'll see install instructions for that provider. The two phases run in order — `${VAR}` first, then external refs — so values like `op://${OP_VAULT}/Anthropic/key` work.
 
 ### Scope
 

@@ -1,17 +1,18 @@
 defmodule AodCli.OnePassword do
   @moduledoc """
-  Tiny wrapper around the 1Password CLI (`op`) for resolving secret
-  references like `op://<vault>/<item>/<field>` at apply time.
+  `AodCli.SecretResolver` implementation for 1Password.
 
-  Calls the user's local `op` binary so authentication (biometric
-  unlock, session, account selection) is handled entirely by 1Password
-  — aod doesn't see or store any 1Password credentials.
+  Wraps the `op` CLI to resolve `op://<vault>/<item>/<field>`
+  references at apply time. Authentication (biometric unlock, session,
+  account selection) is handled entirely by `op` — aod doesn't see or
+  store any 1Password credentials.
 
   Reference docs: https://developer.1password.com/docs/cli/secret-references
   """
 
-  @typedoc "An `op://vault/item/field` (or with section) URI."
-  @type ref :: String.t()
+  @behaviour AodCli.SecretResolver
+
+  @prefix "op://"
 
   @typedoc "Optional injection points for testing."
   @type opts :: [
@@ -19,14 +20,16 @@ defmodule AodCli.OnePassword do
           cmd: (String.t(), [String.t()], keyword() -> {Collectable.t(), non_neg_integer})
         ]
 
+  @impl true
+  def prefix, do: @prefix
+
   @doc "True if the value is a 1Password secret reference."
   @spec ref?(any()) :: boolean()
-  def ref?(v) when is_binary(v), do: String.starts_with?(v, "op://")
+  def ref?(v) when is_binary(v), do: String.starts_with?(v, @prefix)
   def ref?(_), do: false
 
   @doc """
-  Resolve a single `op://...` reference. Returns the plaintext on
-  success.
+  Resolve a single `op://...` reference.
 
       iex> AodCli.OnePassword.read("op://Personal/GitHub/token")
       {:ok, "ghp_..."}
@@ -36,8 +39,12 @@ defmodule AodCli.OnePassword do
     * `{:error, {:op_failed, output}}` — `op` exited non-zero; `output`
       includes its combined stdout+stderr (e.g. "session expired").
   """
-  @spec read(ref(), opts()) :: {:ok, String.t()} | {:error, term()}
-  def read(ref, opts \\ []) when is_binary(ref) do
+  @impl true
+  @spec read(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def read(ref), do: read(ref, [])
+
+  @spec read(String.t(), opts()) :: {:ok, String.t()} | {:error, term()}
+  def read(ref, opts) when is_binary(ref) do
     find = Keyword.get(opts, :find_executable, &System.find_executable/1)
     cmd = Keyword.get(opts, :cmd, &System.cmd/3)
 
@@ -56,9 +63,7 @@ defmodule AodCli.OnePassword do
     end
   end
 
-  @doc """
-  Human-readable error string for surfacing at the apply CLI.
-  """
+  @impl true
   @spec format_error(term()) :: String.t()
   def format_error(:op_not_installed) do
     "1Password CLI (`op`) not on PATH — install from https://developer.1password.com/docs/cli/get-started"
