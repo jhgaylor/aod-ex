@@ -11,7 +11,8 @@ defmodule Mix.Tasks.Aod.Up do
   Usage:
       SPRITES_TOKEN=... mix aod.up
       SPRITES_TOKEN=... mix aod.up --name my-aod --keep
-      SPRITES_TOKEN=... mix aod.up --destroy my-aod   # tear down a previous run
+
+  To tear down a deployment, use `mix aod.down <name>`.
   """
   use Mix.Task
 
@@ -40,8 +41,16 @@ defmodule Mix.Tasks.Aod.Up do
     client = Sprites.new(token)
 
     cond do
-      destroy = opts[:destroy] -> destroy(client, destroy)
-      true -> deploy(client, opts)
+      destroy = opts[:destroy] ->
+        IO.puts(
+          :stderr,
+          "warning: `mix aod.up --destroy <name>` is deprecated; use `mix aod.down <name>` instead."
+        )
+
+        Mix.Tasks.Aod.Down.destroy(client, destroy)
+
+      true ->
+        deploy(client, opts)
     end
   end
 
@@ -121,16 +130,9 @@ defmodule Mix.Tasks.Aod.Up do
     Login at the URL with the ADMIN_TOKEN above.
 
     Tear down later with:
-      mix aod.up --destroy #{name}
+      mix aod.down #{name}
     ============================================================
     """)
-  end
-
-  defp destroy(client, name) do
-    info("destroying sprite '#{name}'...")
-    sprite = Sprites.sprite(client, name)
-    :ok = Sprites.destroy(sprite)
-    info("destroyed.")
   end
 
   defp start_script(env) do

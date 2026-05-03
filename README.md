@@ -153,7 +153,7 @@ SPRITES_TOKEN=... mix aod.up
 # → ADMIN_TOKEN: <copy from output, log in with this>
 ```
 
-The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.up --destroy <sprite-name>`.
+The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.down <sprite-name>`.
 
 Requires Zig 0.15.2 on `PATH` for Burrito's cross-build, and a few Burrito workarounds documented in [docs/deploy.md](docs/deploy.md) — they're paid-down candidates, not load-bearing forever.
 
