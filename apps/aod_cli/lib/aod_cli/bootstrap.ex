@@ -56,16 +56,15 @@ defmodule AodCli.Bootstrap do
     Application.spec(:mix) == nil and Application.spec(:agent_on_demand) == nil
   end
 
+  # In a Burrito-wrapped binary, the Zig wrapper passes the user's
+  # argv as plain arguments to the Erlang VM (i.e. anything after a
+  # `-extra` switch). `:init.get_plain_arguments/0` is what reads
+  # them; that's also exactly what `Burrito.Util.Args.argv/0` does
+  # internally. We can't call the Burrito helper directly because the
+  # dep is `runtime: false` and its modules aren't loaded in the
+  # release. Inlining sidesteps the issue without bloating the binary
+  # with Burrito's own runtime code.
   defp read_argv do
-    # `apply/3` instead of a direct call so the compiler doesn't warn
-    # when Burrito (a build-time-only dep) isn't loaded for a plain
-    # `mix compile`.
-    burrito = Burrito.Util.Args
-
-    if Code.ensure_loaded?(burrito) and function_exported?(burrito, :argv, 0) do
-      apply(burrito, :argv, [])
-    else
-      System.argv()
-    end
+    :init.get_plain_arguments() |> Enum.map(&to_string/1)
   end
 end
