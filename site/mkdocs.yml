@@ -21,6 +21,10 @@ theme:
     - navigation.top
     - content.code.copy
     - content.code.annotate
+    # Linked content tabs: tab groups with the same labels sync
+    # across the page (and across pages, via localStorage). Pick
+    # Python in one example, every other example flips to Python.
+    - content.tabs.link
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -50,6 +54,9 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
@@ -62,20 +69,23 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Get started:
+  - Why: why.md
+  - How it works: how-it-works.md
+  - Examples: examples.md
+  - Docs:
       - Install: install.md
       - Quickstart: quickstart.md
-  - Concepts:
-      - Agents: concepts/agents.md
-      - Environments: concepts/environments.md
-      - Manifest (aod apply): concepts/manifest.md
-      - Spawning sub-agents: concepts/spawning.md
-      - API reference: concepts/api.md
-  - SDKs:
-      - Python: sdks/python.md
-      - TypeScript: sdks/typescript.md
-      - Go: sdks/go.md
-      - Elixir: sdks/elixir.md
-  - Operating:
-      - Deploy: operating/deploy.md
-      - Runbook: operating/runbook.md
+      - Concepts:
+          - Agents: concepts/agents.md
+          - Environments: concepts/environments.md
+          - Manifest (aod apply): concepts/manifest.md
+          - Spawning sub-agents: concepts/spawning.md
+          - API reference: concepts/api.md
+      - SDKs:
+          - Python: sdks/python.md
+          - TypeScript: sdks/typescript.md
+          - Go: sdks/go.md
+          - Elixir: sdks/elixir.md
+      - Operating:
+          - Deploy: operating/deploy.md
+          - Runbook: operating/runbook.md
