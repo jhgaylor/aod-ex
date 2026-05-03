@@ -8,7 +8,8 @@ defmodule AodCli.SecretResolvers do
 
   @resolvers [
     AodCli.OnePassword,
-    AodCli.Bitwarden
+    AodCli.Bitwarden,
+    AodCli.Infisical
   ]
 
   @doc "All registered resolvers in lookup order."

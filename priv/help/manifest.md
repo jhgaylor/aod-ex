@@ -91,6 +91,7 @@ Secret values in `spec.secrets` accept two kinds of references that get resolved
 - `${VAR}` — substituted from your local environment, or from `--var KEY=VAL` flags.
 - `op://<vault>/<item>/<field>` — resolved via the [1Password CLI](https://developer.1password.com/docs/cli/get-started). Auth (biometric unlock, session) handled by `op`.
 - `bws://<secret-uuid>` — resolved via the [Bitwarden Secrets Manager CLI](https://bitwarden.com/help/secrets-manager-cli/). Auth via `BWS_ACCESS_TOKEN` (consumed by `bws`).
+- `infisical://<project?>/<env>/<path?>/<name>` — resolved via the [Infisical CLI](https://infisical.com/docs/cli/overview). Empty project segment (`infisical:///<env>/<name>`) falls through to `.infisical.json` / `INFISICAL_PROJECT_ID`. Last URI segment is always the secret name; segments between env and name form the folder path.
 
 Add another provider (Vault, AWS Secrets Manager, Doppler, ...) by implementing `AodCli.SecretResolver` and registering the module — ~30 lines per provider.
 
@@ -102,10 +103,12 @@ metadata:
   name: ravi-hq
 spec:
   secrets:
-    GITHUB_TOKEN: ${GH_PAT}                              # ← from $GH_PAT at apply time
-    POSTHOG_API_KEY: op://Work/PostHog/api_key           # ← resolved via 1Password CLI
-    NPM_TOKEN: bws://be8e0ad8-1234-5678-90ab-cdef01234567   # ← Bitwarden Secrets Manager
-    ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key     # ← composes: ${VAR} then op
+    GITHUB_TOKEN: ${GH_PAT}                                  # ← from $GH_PAT at apply time
+    POSTHOG_API_KEY: op://Work/PostHog/api_key               # ← 1Password CLI
+    NPM_TOKEN: bws://be8e0ad8-1234-5678-90ab-cdef01234567    # ← Bitwarden Secrets Manager
+    DATABASE_URL: infisical://abc/prod/api/DATABASE_URL      # ← Infisical (explicit project)
+    REDIS_URL: infisical:///prod/REDIS_URL                   # ← Infisical (workspace project)
+    ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key        # ← composes: ${VAR} first, then op
 ---
 apiVersion: aod/v1
 kind: Vault

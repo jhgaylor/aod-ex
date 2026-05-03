@@ -36,6 +36,10 @@ defmodule AodCli.Apply do
     (`op`). Auth handled by `op` (biometric, session).
   - `bws://<secret-uuid>` — resolved via the Bitwarden Secrets Manager
     CLI (`bws`). Auth via `BWS_ACCESS_TOKEN` (consumed by `bws`).
+  - `infisical://<project?>/<env>/<path?>/<name>` — resolved via the
+    Infisical CLI (`infisical`). Empty project segment falls through
+    to `.infisical.json` / `INFISICAL_PROJECT_ID`. Auth via the CLI's
+    own login session or `INFISICAL_TOKEN`.
 
   External-reference resolution is dispatched by URI scheme through
   `AodCli.SecretResolvers`. To add another provider (Vault, AWS
@@ -51,7 +55,8 @@ defmodule AodCli.Apply do
           GITHUB_TOKEN: ${GH_PAT}                       # local env
           POSTHOG_API_KEY: op://Work/PostHog/api_key    # 1Password
           NPM_TOKEN: bws://abc-123-uuid                 # Bitwarden Secrets Manager
-          ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key  # ${VAR} first, then op
+          DATABASE_URL: infisical://abc/prod/api/DATABASE_URL  # Infisical
+          ANTHROPIC_API_KEY: op://${OP_VAULT}/Anthropic/key    # ${VAR} first, then op
 
   Other manifest fields (e.g. agent `mcp_servers` headers) are left
   literal here and resolved by the provision-time substitution layer

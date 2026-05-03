@@ -14,6 +14,16 @@ defmodule AodCli.SecretResolversTest do
                AodCli.Bitwarden
     end
 
+    test "routes infisical:// values to Infisical" do
+      assert SecretResolvers.for_value("infisical://abc/prod/DATABASE_URL") ==
+               AodCli.Infisical
+    end
+
+    test "routes empty-project infisical:/// values to Infisical" do
+      assert SecretResolvers.for_value("infisical:///prod/DATABASE_URL") ==
+               AodCli.Infisical
+    end
+
     test "returns nil for literal strings" do
       assert SecretResolvers.for_value("ghp_literal_token") == nil
       assert SecretResolvers.for_value("${SOME_VAR}") == nil
@@ -31,6 +41,7 @@ defmodule AodCli.SecretResolversTest do
       all = SecretResolvers.all()
       assert AodCli.OnePassword in all
       assert AodCli.Bitwarden in all
+      assert AodCli.Infisical in all
     end
   end
 end
