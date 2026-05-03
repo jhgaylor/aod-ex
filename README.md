@@ -142,30 +142,33 @@ Set that URL as `AOD_PUBLIC_URL` in `.env` and restart the server. Any sprite pr
 
 [ngrok](https://ngrok.com) and [tailscale funnel](https://tailscale.com/kb/1223/funnel) work too. ngrok requires a free account; tailscale funnel needs a tailnet.
 
-## Production deploy (Sprites — `mix aod.up`)
+## Production deploy (Sprites — `aod up`)
 
-One-command deploy into a Sprite (the same primitive that runs each conversation):
+One command deploys into a Sprite (the same primitive that runs each conversation). Two equivalent entry points:
 
 ```bash
-SPRITES_TOKEN=... mix aod.up
+SPRITES_TOKEN=... mix aod.up           # from a project checkout
+SPRITES_TOKEN=... ./aod up             # from a downloaded release binary, no Erlang needed
 # → URL: https://aod-<id>-<region>.sprites.app
 # → ADMIN_TOKEN: <copy from output, log in with this>
 ```
 
-By default `aod.up` downloads the linux binary from the GitHub release matching the current `mix.exs` version (`v0.1.0`) and caches it in `_build/aod-releases/`. Override with `--release vX.Y.Z`. If `burrito_out/aod_linux` exists locally (e.g. you ran `MIX_ENV=prod mix release` for an in-flight change), that wins.
+Both paths share `AodCli.Up.dispatch/1` so they behave identically. The released binary embeds `aod up` / `aod down` as subcommands so you don't need a checkout to deploy.
 
-The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.down <sprite-name>`.
+By default the linux binary is fetched from the GitHub release matching the build's version (`v0.1.0`) and cached at `~/.cache/aod/releases/<tag>/`. Override with `--release vX.Y.Z`. If `burrito_out/aod_linux` exists locally (e.g. you ran `MIX_ENV=prod mix release` for an in-flight change), that wins.
+
+The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `aod down <sprite-name>` (or `mix aod.down <sprite-name>`).
 
 ### Upgrade in place
 
 Re-run with the same `--name` to swap the binary on an existing deployment without losing state:
 
 ```bash
-SPRITES_TOKEN=... mix aod.up --name <existing-name>                    # latest local-or-release
-SPRITES_TOKEN=... mix aod.up --name <existing-name> --release v0.2.0   # specific release
+SPRITES_TOKEN=... aod up --name <existing-name>                    # latest local-or-release
+SPRITES_TOKEN=... aod up --name <existing-name> --release v0.2.0   # specific release
 ```
 
-The mix task detects the existing sprite, recovers `ADMIN_TOKEN` / `SECRETS_KEY` / `SECRET_KEY_BASE` from the `start.sh` it wrote on first deploy, pushes the new binary on top of the old one, and recreates the `sprite-env` service. The SQLite DB at `/opt/aod/data/aod.db` and the encryption key are preserved, so existing agents/environments/vaults/conversations survive.
+The task detects the existing sprite, recovers `ADMIN_TOKEN` / `SECRETS_KEY` / `SECRET_KEY_BASE` from the `start.sh` it wrote on first deploy, pushes the new binary on top of the old one, and recreates the `sprite-env` service. The SQLite DB at `/opt/aod/data/aod.db` and the encryption key are preserved, so existing agents/environments/vaults/conversations survive.
 
 ### Cutting a release
 

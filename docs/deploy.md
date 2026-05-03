@@ -21,9 +21,9 @@ The Sprite-side service (`sprite-env services create aod --http-port 4000`) surv
 ## Prerequisites
 
 - **`SPRITES_TOKEN`** in env or `.env`.
-- A linux binary. `mix aod.up` looks in two places, in order:
+- A linux binary. `aod up` looks in two places, in order:
   1. **Local build** at `burrito_out/aod_linux` — produced by `MIX_ENV=prod mix release` (requires Zig 0.15.2; see below). Used if it exists. Skip the local build if you don't need it.
-  2. **GitHub release** matching the project's `mix.exs` version (`v0.1.0`) — downloaded automatically and cached in `_build/aod-releases/<tag>/`. Override with `mix aod.up --release vX.Y.Z`.
+  2. **GitHub release** matching the build's version (`v0.1.0`) — downloaded automatically and cached at `~/.cache/aod/releases/<tag>/` (or `$XDG_CACHE_HOME/aod/...`). Override with `--release vX.Y.Z`.
 
 ### Building locally (optional)
 

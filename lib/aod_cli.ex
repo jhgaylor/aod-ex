@@ -22,6 +22,9 @@ defmodule AodCli do
       aod vault delete <name|id>
       aod apply -f <file>                       reconcile environments, vaults + agents from a YAML manifest
 
+      aod up [--name NAME] [--release vX.Y.Z]   deploy or upgrade an AoD instance into a Sprite
+      aod down <sprite-name>                    destroy a deployed AoD instance
+
   Pass `--json` to any list/show command to get raw JSON.
   """
 
@@ -36,6 +39,8 @@ defmodule AodCli do
       ["env" | rest] -> AodCli.Env.dispatch(rest)
       ["vault" | rest] -> AodCli.Vault.dispatch(rest)
       ["apply" | rest] -> AodCli.Apply.dispatch(rest)
+      ["up" | rest] -> AodCli.Up.dispatch(rest)
+      ["down" | rest] -> AodCli.Down.dispatch(rest)
       ["help"] -> usage()
       ["--help"] -> usage()
       [] -> usage()
