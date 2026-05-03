@@ -20,48 +20,41 @@ defmodule AodCli.Bootstrap do
 
   @impl Application
   def start(_type, _args) do
-    children =
-      if run_main_on_start?() do
-        [
-          Supervisor.child_spec(
-            {Task, fn -> run_and_halt() end},
-            id: AodCli.Bootstrap.Runner,
-            restart: :temporary
-          )
-        ]
-      else
-        # `mix test`, `iex -S mix`, the server release (which depends
-        # on aod_cli for AodCli.Substitution but isn't running the
-        # CLI), etc. Just be a loaded OTP app — don't auto-run main.
-        []
-      end
+    IO.puts(
+      :stderr,
+      "aod-bootstrap: run_main_on_start=#{inspect(run_main_on_start?())} RELEASE_NAME=#{inspect(System.get_env("RELEASE_NAME"))}"
+    )
 
-    Supervisor.start_link(children, strategy: :one_for_one, name: AodCli.Bootstrap.Sup)
+    if run_main_on_start?() do
+      # Burrito's documented pattern: do the work in start/2 directly
+      # and System.halt at the end. The earlier Task-supervisor approach
+      # could deadlock because Application.start was returning before
+      # the Task got scheduled cleanly.
+      args = read_argv()
+
+      try do
+        AodCli.main(args)
+        System.halt(0)
+      rescue
+        e ->
+          IO.puts(:stderr, "aod: " <> Exception.message(e))
+          System.halt(1)
+      end
+    else
+      # `mix test`, `iex -S mix`, the server release (which depends on
+      # aod_cli for AodCli.Substitution but isn't running the CLI), etc.
+      Supervisor.start_link([], strategy: :one_for_one, name: AodCli.Bootstrap.Sup)
+    end
   end
 
-  # The CLI release's runtime config sets this to true. Anything else
-  # (server release, dev, test, iex) leaves it false.
   defp run_main_on_start? do
     Application.get_env(:aod_cli, :run_main_on_start, false)
   end
 
-  defp run_and_halt do
-    args = read_argv()
-
-    try do
-      AodCli.main(args)
-      System.halt(0)
-    rescue
-      e ->
-        IO.puts(:stderr, "aod: " <> Exception.message(e))
-        System.halt(1)
-    end
-  end
-
   defp read_argv do
     # `apply/3` instead of a direct call so the compiler doesn't warn
-    # when Burrito (a build-time-only dep) isn't loaded yet during a
-    # plain `mix compile`.
+    # when Burrito (a build-time-only dep) isn't loaded for a plain
+    # `mix compile`.
     burrito = Burrito.Util.Args
 
     if Code.ensure_loaded?(burrito) and function_exported?(burrito, :argv, 0) do
