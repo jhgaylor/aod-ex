@@ -41,6 +41,33 @@ The `model` field always uses the `provider/model` shape — even though codex/g
 
 If you've got more than two or three agents, use **`aod apply -f aod.yml`**. See **Manifest** for the YAML format.
 
+## `${VAR}` substitution in `mcp_servers`
+
+Most MCP clients don't expand env vars in their config — they read literal strings. So when AoD writes the runtime's MCP config (claude's `~/.claude.json`, codex's `~/.codex/config.toml`, etc.), it substitutes `${VAR}` references **eagerly**, at provision time, against the merged `env_vars` + environment secrets + vault secrets map. Vault wins on key collision.
+
+```yaml
+mcp_servers:
+  github:
+    type: http
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization: "Bearer ${GITHUB_TOKEN}"   # ← resolved from env or vault
+```
+
+Rules:
+
+| Syntax     | Meaning                                              |
+| ---------- | ---------------------------------------------------- |
+| `${VAR}`   | eager — substituted at provision time                |
+| `$${VAR}`  | escape — written through as the literal `${VAR}`     |
+| `$$`       | literal `$`                                          |
+
+Identifiers must be `[A-Z_][A-Z0-9_]*` (UPPER_SNAKE_CASE), the same shape as secret keys. Substitution recurses into nested maps and lists, so `headers`, `args`, and `env` all work the same way.
+
+If the agent references a key that's missing from both the environment and the conversation's vault, **provisioning fails** — the conversation is marked `failed` and the missing names show up in the `provision/failed` stage event. This is deliberate: half-substituted configs are confusing to debug.
+
+Use `$${VAR}` only when the MCP server (or some downstream process the runtime spawns) is going to expand the reference itself. That's rare today.
+
 ## Available runtimes
 
 | runtime | CLI | model format | auth |

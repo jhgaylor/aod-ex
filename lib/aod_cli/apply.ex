@@ -20,8 +20,8 @@ defmodule AodCli.Apply do
       spec:
         # ... fields matching the API schemas ...
         # for Agent: optional `environment: <env-name>` resolves to env id
-        # for Vault: optional `secrets: { KEY: value }` map upserted as
-        #   vault secrets after the vault row itself is reconciled
+        # for Environment / Vault: optional `secrets: { KEY: value }` map
+        #   upserted as secrets after the row itself is reconciled
 
   Exit code: 0 on success, 1 if any resource fails to apply.
   """
@@ -90,31 +90,60 @@ defmodule AodCli.Apply do
   defp apply_environment(doc) do
     name = required(doc, "metadata.name")
     spec = doc["spec"] || %{}
-    body = Map.put(spec, "name", name)
+    secrets = spec["secrets"] || %{}
 
-    case fetch_by_name("/environments", name) do
-      {:ok, %{"id" => id}} ->
-        case Api.put("/environments/#{id}", body) do
-          {:ok, %{"data" => env}} ->
-            IO.puts("env  ~  #{name}")
-            {:ok, env}
+    body =
+      spec
+      |> Map.delete("secrets")
+      |> Map.put("name", name)
 
-          {:error, err} ->
-            warn("env  !  #{name} (update failed): #{inspect(err)}")
-            :error
-        end
+    env =
+      case fetch_by_name("/environments", name) do
+        {:ok, %{"id" => id}} ->
+          case Api.put("/environments/#{id}", body) do
+            {:ok, %{"data" => env}} ->
+              IO.puts("env  ~  #{name}")
+              env
 
-      :not_found ->
-        case Api.post("/environments", body) do
-          {:ok, %{"data" => env}} ->
-            IO.puts("env  +  #{name}")
-            {:ok, env}
+            {:error, err} ->
+              warn("env  !  #{name} (update failed): #{inspect(err)}")
+              nil
+          end
 
-          {:error, err} ->
-            warn("env  !  #{name} (create failed): #{inspect(err)}")
-            :error
-        end
+        :not_found ->
+          case Api.post("/environments", body) do
+            {:ok, %{"data" => env}} ->
+              IO.puts("env  +  #{name}")
+              env
+
+            {:error, err} ->
+              warn("env  !  #{name} (create failed): #{inspect(err)}")
+              nil
+          end
+      end
+
+    case env do
+      %{"id" => env_id} ->
+        upsert_env_secrets(env_id, name, secrets)
+        {:ok, env}
+
+      _ ->
+        :error
     end
+  end
+
+  defp upsert_env_secrets(_, _, secrets) when secrets in [nil, %{}], do: :ok
+
+  defp upsert_env_secrets(env_id, name, %{} = secrets) do
+    Enum.each(secrets, fn {k, v} ->
+      case Api.post("/environments/#{env_id}/secrets", %{
+             key: to_string(k),
+             value: to_string(v)
+           }) do
+        {:ok, _} -> IO.puts("  secret  ~  #{name}/#{k}")
+        {:error, err} -> warn("  secret  !  #{name}/#{k}: #{inspect(err)}")
+      end
+    end)
   end
 
   defp apply_vault(doc) do

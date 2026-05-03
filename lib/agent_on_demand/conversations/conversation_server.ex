@@ -13,7 +13,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   require Logger
   require OpenTelemetry.Tracer
 
-  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient, Vaults}
+  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient, Substitution, Vaults}
 
   # ── public api ────────────────────────────────────────────────────────────
 
@@ -127,22 +127,60 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     secrets = merge_secrets(env, vault)
     state = %{state | runtime_session_id: conv.runtime_session_id}
 
-    case sandbox.status do
-      "ready" ->
-        # The sprite already exists at sprites.dev and was fully provisioned
-        # in a previous BEAM lifetime. Reattach instead of recreating.
-        reattach(state, conv, sandbox, agent, env, secrets)
+    case substitute_agent_mcp(agent, env, secrets) do
+      {:ok, agent} ->
+        case sandbox.status do
+          "ready" ->
+            # The sprite already exists at sprites.dev and was fully provisioned
+            # in a previous BEAM lifetime. Reattach instead of recreating.
+            reattach(state, conv, sandbox, agent, env, secrets)
 
-      s when s in ["pending", "starting"] ->
-        fresh_provision(state, conv, sandbox, agent, env, secrets)
+          s when s in ["pending", "starting"] ->
+            fresh_provision(state, conv, sandbox, agent, env, secrets)
 
-      terminal when terminal in ["terminated", "failed"] ->
-        Logger.warning("ConversationServer started for terminal conv #{conv.id} (#{terminal})")
+          terminal when terminal in ["terminated", "failed"] ->
+            Logger.warning(
+              "ConversationServer started for terminal conv #{conv.id} (#{terminal})"
+            )
+
+            {:stop, :normal, state}
+
+          _ ->
+            fresh_provision(state, conv, sandbox, agent, env, secrets)
+        end
+
+      {:error, {:missing_vars, names}} ->
+        reason = "missing env/vault keys referenced in mcp_servers: #{Enum.join(names, ", ")}"
+        Logger.error("provision failed for conv #{conv.id}: #{reason}")
+        publish_stage(state.conversation_id, "provision", "failed", %{reason: reason})
+        {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+        Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
-
-      _ ->
-        fresh_provision(state, conv, sandbox, agent, env, secrets)
     end
+  end
+
+  # Resolve `${VAR}` references in the agent's MCP server config against
+  # env_vars + env_secrets + vault_secrets (vault wins). Env vars values
+  # are coerced to strings; non-string values further down the tree pass
+  # through untouched.
+  defp substitute_agent_mcp(nil, _env, _secrets), do: {:ok, nil}
+
+  defp substitute_agent_mcp(agent, env, secrets) do
+    vars = substitution_vars(env, secrets)
+
+    case Substitution.apply(agent.mcp_servers || %{}, vars) do
+      {:ok, mcp} -> {:ok, %{agent | mcp_servers: mcp}}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp substitution_vars(env, secrets) do
+    env_vars =
+      if env,
+        do: Map.new(env.env_vars || %{}, fn {k, v} -> {to_string(k), to_string(v)} end),
+        else: %{}
+
+    Map.merge(env_vars, secrets)
   end
 
   defp fresh_provision(state, conv, sandbox, agent, env, secrets) do
