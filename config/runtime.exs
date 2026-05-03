@@ -30,23 +30,15 @@ if config_env() != :prod and File.exists?(env_path) do
   end)
 end
 
-# config/runtime.exs is executed for all environments, including
-# during releases. It is executed after compilation and before the
-# system starts, so it is typically used to load production configuration
-# and secrets from environment variables or elsewhere. Do not define
-# any compile-time configuration in here, as it won't be applied.
-# The block below contains prod specific runtime configuration.
+# config/runtime.exs runs on every release startup, including for
+# CLI subcommands like `./aod conv list` or `./aod up`. We only want
+# to enforce server-only env requirements (ADMIN_TOKEN, SECRETS_KEY,
+# DATABASE_PATH, ...) when actually starting Phoenix. The signal is
+# `PHX_SERVER` — set in `start.sh` for sprite deployments, absent
+# for CLI mode.
+server? = System.get_env("PHX_SERVER") in ~w(1 true yes)
 
-# ## Using releases
-#
-# If you use `mix release`, you need to explicitly enable the server
-# by passing the PHX_SERVER=true when you start it:
-#
-#     PHX_SERVER=true bin/agent_on_demand start
-#
-# Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
-# script that automatically sets the env var above.
-if System.get_env("PHX_SERVER") do
+if server? do
   config :agent_on_demand, AgentOnDemandWeb.Endpoint, server: true
 end
 
@@ -55,28 +47,29 @@ config :agent_on_demand, AgentOnDemandWeb.Endpoint,
 
 env = config_env()
 
-# Single-tenant admin token. In dev, a default is fine.
+# Single-tenant admin token. Required for the server; CLI mode reads
+# AOD_TOKEN directly from the env when talking to a remote AoD, so
+# this config is unused there.
 admin_token =
-  case {System.get_env("ADMIN_TOKEN"), env} do
-    {nil, :prod} -> raise "environment variable ADMIN_TOKEN is missing."
-    {nil, _} -> "dev-admin-token"
-    {value, _} -> value
+  case {System.get_env("ADMIN_TOKEN"), env, server?} do
+    {nil, :prod, true} -> raise "environment variable ADMIN_TOKEN is missing."
+    {nil, _, _} -> "dev-admin-token"
+    {value, _, _} -> value
   end
 
 config :agent_on_demand, :admin_token, admin_token
 
-# 32-byte symmetric key for secret-at-rest encryption.
-# In dev/test we derive a stable key from a fixed seed so the DB is portable.
-# In prod, require an explicit SECRETS_KEY (32 url-safe base64 bytes).
+# 32-byte symmetric key for secret-at-rest encryption. Required for
+# the server; unused in CLI mode (no DB, no decryption).
 secrets_key =
-  case {System.get_env("SECRETS_KEY"), env} do
-    {nil, :prod} ->
+  case {System.get_env("SECRETS_KEY"), env, server?} do
+    {nil, :prod, true} ->
       raise "environment variable SECRETS_KEY is missing (32 bytes, base64-encoded)."
 
-    {nil, _} ->
+    {nil, _, _} ->
       :crypto.hash(:sha256, "agent_on_demand:dev:secrets_key")
 
-    {encoded, _} ->
+    {encoded, _, _} ->
       case Base.url_decode64(encoded, padding: false) do
         {:ok, <<_::binary-32>> = key} -> key
         _ -> raise "SECRETS_KEY must be 32 bytes encoded as url-safe base64 (no padding)."
@@ -126,7 +119,7 @@ config :agent_on_demand, :gemini_api_key, System.get_env("GEMINI_API_KEY")
 # the sprite's network — i.e. a public URL or a tunnel.
 config :agent_on_demand, :public_url, System.get_env("AOD_PUBLIC_URL")
 
-if config_env() == :prod do
+if config_env() == :prod and server? do
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """
