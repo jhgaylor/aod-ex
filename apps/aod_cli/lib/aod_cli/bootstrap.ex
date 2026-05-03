@@ -21,7 +21,7 @@ defmodule AodCli.Bootstrap do
   @impl Application
   def start(_type, _args) do
     children =
-      if release_mode?() do
+      if run_main_on_start?() do
         [
           Supervisor.child_spec(
             {Task, fn -> run_and_halt() end},
@@ -30,19 +30,19 @@ defmodule AodCli.Bootstrap do
           )
         ]
       else
-        # `mix test`, `iex -S mix`, etc. — just be a loaded OTP app,
-        # don't auto-run the CLI. The CLI is invoked explicitly via
-        # `mix run -e "AodCli.main([...])"` or the escript build.
+        # `mix test`, `iex -S mix`, the server release (which depends
+        # on aod_cli for AodCli.Substitution but isn't running the
+        # CLI), etc. Just be a loaded OTP app — don't auto-run main.
         []
       end
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AodCli.Bootstrap.Sup)
   end
 
-  # In a Burrito-wrapped or `mix release` binary, Mix isn't included.
-  # In dev/test/iex, Mix is loaded.
-  defp release_mode? do
-    Application.spec(:mix) == nil
+  # The CLI release's runtime config sets this to true. Anything else
+  # (server release, dev, test, iex) leaves it false.
+  defp run_main_on_start? do
+    Application.get_env(:aod_cli, :run_main_on_start, false)
   end
 
   defp run_and_halt do

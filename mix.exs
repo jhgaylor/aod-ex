@@ -57,8 +57,11 @@ defmodule AoD.Umbrella.MixProject do
       ],
       aod_server: [
         # Full Phoenix release. Also bundles aod_cli (for AodCli.Substitution
-        # at provision time) but loads it without starting the bootstrap.
-        applications: [aod_cli: :load, agent_on_demand: :permanent],
+        # at provision time). Both apps are :permanent — Mix won't allow
+        # a :permanent app to depend on a :load-only app. AodCli.Bootstrap
+        # is gated on `:run_main_on_start` config, which the umbrella's
+        # runtime.exs only sets when RELEASE_NAME=aod.
+        applications: [aod_cli: :permanent, agent_on_demand: :permanent],
         steps: [:assemble, &Burrito.wrap/1],
         burrito: burrito_targets_with_nif_workarounds()
       ]
