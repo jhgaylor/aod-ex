@@ -3,12 +3,12 @@ defmodule AgentOnDemandWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
+    plug AgentOnDemandWeb.Plugs.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
   end
 
   pipeline :authed_api do
     plug :accepts, ["json"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
+    plug AgentOnDemandWeb.Plugs.PutApiSpec, module: AgentOnDemandWeb.ApiSpec
     plug AgentOnDemandWeb.Plugs.AdminAuth
     plug AgentOnDemandWeb.Plugs.RateLimit, bucket: "api", max: 600
     plug AgentOnDemandWeb.Plugs.Audit

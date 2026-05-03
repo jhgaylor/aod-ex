@@ -49,6 +49,10 @@ config :agent_on_demand, AgentOnDemandWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :agent_on_demand, dev_routes: true
 
+# Rebuild the OpenAPI spec on every request so newly-added controllers
+# show up without a server restart. Tiny per-request cost, dev only.
+config :agent_on_demand, cache_api_spec: false
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
