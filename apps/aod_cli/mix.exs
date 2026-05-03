@@ -4,7 +4,7 @@ defmodule AodCli.MixProject do
   def project do
     [
       app: :aod_cli,
-      version: "0.2.0",
+      version: "0.2.4",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
       deps_path: "../../deps",

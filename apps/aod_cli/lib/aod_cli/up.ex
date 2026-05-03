@@ -96,12 +96,19 @@ defmodule AodCli.Up do
   end
 
   # ── binary resolution ────────────────────────────────────────────
+  #
+  # Returns either:
+  #   {:local, path}        — operator's local build at burrito_out/...
+  #                            push via fs/write (size-limited by sprites.dev).
+  #   {:release_url, url}   — short-lived signed URL to a GitHub release asset.
+  #                            sprite curls it directly — avoids the 22 MB+
+  #                            body limit on /fs/write entirely.
 
   defp resolve_binary_path(nil) do
     cond do
       File.exists?(@local_binary_path) ->
         info("using local build: #{@local_binary_path}")
-        Path.expand(@local_binary_path)
+        {:local, Path.expand(@local_binary_path)}
 
       true ->
         tag = "v" <> @app_version
@@ -110,72 +117,55 @@ defmodule AodCli.Up do
           "no local build found at #{@local_binary_path}; falling back to GitHub release #{tag}"
         )
 
-        download_release_binary(tag)
+        {:release_url, resolve_release_signed_url(tag)}
     end
   end
 
   defp resolve_binary_path(release_arg) when is_binary(release_arg) do
     tag = if String.starts_with?(release_arg, "v"), do: release_arg, else: "v" <> release_arg
     info("using GitHub release #{tag} (--release override)")
-    download_release_binary(tag)
+    {:release_url, resolve_release_signed_url(tag)}
   end
 
-  @doc false
-  def download_release_binary(tag) do
-    cache_dir = Path.join(cache_root(), tag)
-    cache_path = Path.join(cache_dir, @release_asset_name)
+  # Resolve the release asset's signed download URL (S3-backed,
+  # short-lived ~5min) without actually downloading. The sprite uses
+  # this URL via `curl` directly — much faster than streaming the
+  # binary through the operator's HTTP client and back, and the
+  # signed URL doesn't need GitHub auth (GitHub embedded the auth
+  # in the query string).
+  defp resolve_release_signed_url(tag) do
+    token = resolve_github_token()
+    asset_id = lookup_asset_id(tag, token)
 
-    if File.exists?(cache_path) do
-      info("cached: #{cache_path}")
-      cache_path
-    else
-      File.mkdir_p!(cache_dir)
+    url = "https://api.github.com/repos/#{@github_repo}/releases/assets/#{asset_id}"
 
-      token = resolve_github_token()
-      asset_id = lookup_asset_id(tag, token)
+    headers = [
+      {"accept", "application/octet-stream"},
+      {"x-github-api-version", "2022-11-28"}
+      | auth_header(token)
+    ]
 
-      url = "https://api.github.com/repos/#{@github_repo}/releases/assets/#{asset_id}"
+    # `redirect: false` — capture the 302 to objects.githubusercontent.com
+    # rather than following it (we don't want to download).
+    case Req.get(url, headers: headers, redirect: false, receive_timeout: 30_000) do
+      {:ok, %{status: 302} = resp} ->
+        case Req.Response.get_header(resp, "location") do
+          [signed_url | _] ->
+            info("resolved signed asset URL (#{tag} / #{@release_asset_name})")
+            signed_url
 
-      info("downloading #{@release_asset_name} from #{tag}...")
+          [] ->
+            AodCli.die("release asset endpoint returned 302 but no Location header")
+        end
 
-      headers = [
-        {"accept", "application/octet-stream"},
-        {"x-github-api-version", "2022-11-28"}
-        | auth_header(token)
-      ]
-
-      result =
-        Req.get(
-          url,
-          headers: headers,
-          redirect: true,
-          # Let the redirect to objects.githubusercontent.com proceed
-          # without forwarding our Authorization header (Req strips it
-          # on cross-host redirects by default — explicit here as a
-          # safety pin).
-          redirect_log_level: false,
-          receive_timeout: 120_000,
-          into: File.stream!(cache_path)
+      {:ok, %{status: status}} ->
+        AodCli.die(
+          "could not resolve signed URL for #{tag}: GET #{url} returned HTTP #{status} " <>
+            github_auth_hint(token, status)
         )
 
-      case result do
-        {:ok, %{status: 200}} ->
-          File.chmod!(cache_path, 0o755)
-          info("saved to #{cache_path} (#{File.stat!(cache_path).size |> human_size})")
-          cache_path
-
-        {:ok, %{status: status}} ->
-          File.rm(cache_path)
-
-          AodCli.die(
-            "release download failed: GET #{url} returned HTTP #{status} " <>
-              github_auth_hint(token, status)
-          )
-
-        {:error, reason} ->
-          File.rm(cache_path)
-          AodCli.die("release download failed: #{inspect(reason)}")
-      end
+      {:error, reason} ->
+        AodCli.die("could not resolve signed URL for #{tag}: #{inspect(reason)}")
     end
   end
 
@@ -214,11 +204,6 @@ defmodule AodCli.Up do
     end
   end
 
-  defp cache_root do
-    base = System.get_env("XDG_CACHE_HOME") || Path.join(System.user_home!(), ".cache")
-    Path.join([base, "aod", "releases"])
-  end
-
   defp resolve_github_token do
     case System.get_env("GITHUB_TOKEN") do
       token when is_binary(token) and token != "" ->
@@ -250,7 +235,7 @@ defmodule AodCli.Up do
 
   # ── deploy ───────────────────────────────────────────────────────
 
-  defp deploy(client, name, binary_path) do
+  defp deploy(client, name, binary_source) do
     info("provisioning sprite '#{name}'...")
     {:ok, sprite} = Sprites.create(client, name)
 
@@ -262,11 +247,7 @@ defmodule AodCli.Up do
     public_url = extract_public_url(sprite_info, @port) || raise("no public URL on sprite")
     info("public url: #{public_url}")
 
-    info("pushing binary (#{File.stat!(binary_path).size |> human_size}) to sprite...")
-    fs = Sprites.filesystem(sprite, "/")
-    binary = File.read!(binary_path)
-    :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
-    info("binary pushed.")
+    push_binary(sprite, binary_source)
 
     info("creating data dir...")
     {_, 0} = Sprites.cmd(sprite, "mkdir", ["-p", "/opt/aod/data"])
@@ -327,9 +308,62 @@ defmodule AodCli.Up do
     """)
   end
 
+  # ── binary push ──────────────────────────────────────────────────
+  #
+  # Two paths for getting the 21+ MB server binary into the sprite:
+  #
+  #   {:release_url, signed_url}
+  #     Sprite-side `curl` from a short-lived signed S3 URL we
+  #     resolved on the operator side. No huge body proxied through
+  #     the operator's HTTP client; the sprite pulls directly. This
+  #     is the common case (operators don't usually have a local
+  #     build).
+  #
+  #   {:local, path}
+  #     fs/write upload from operator → sprite. Hits sprites.dev's
+  #     ~20 MB body limit on the fs/write endpoint, so this only
+  #     works for small binaries today. We could implement chunked
+  #     upload later; for now, fail loudly with a clear message.
+  defp push_binary(sprite, {:release_url, signed_url}) do
+    info("downloading binary on the sprite from a signed release URL...")
+
+    {output, code} =
+      Sprites.cmd(
+        sprite,
+        "curl",
+        ["-fsSL", signed_url, "-o", @remote_binary, "--create-dirs"],
+        stderr_to_stdout: true,
+        timeout: 300_000
+      )
+
+    if code != 0, do: raise("sprite-side curl failed (code #{code}):\n#{output}")
+
+    {_, 0} = Sprites.cmd(sprite, "chmod", ["+x", @remote_binary])
+    info("binary downloaded.")
+  end
+
+  defp push_binary(sprite, {:local, path}) do
+    size = File.stat!(path).size
+    info("pushing local build (#{human_size(size)}) to sprite via fs/write...")
+
+    if size > 18_000_000 do
+      AodCli.die(
+        "local binary is #{human_size(size)} — sprites.dev's /fs/write endpoint " <>
+          "rejects bodies above ~20 MB. Use a tagged release instead (`mix aod.up " <>
+          "--release vX.Y.Z`), which downloads on the sprite via curl and avoids " <>
+          "the limit."
+      )
+    end
+
+    fs = Sprites.filesystem(sprite, "/")
+    binary = File.read!(path)
+    :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
+    info("binary pushed.")
+  end
+
   # ── upgrade ──────────────────────────────────────────────────────
 
-  defp upgrade(client, name, binary_path) do
+  defp upgrade(client, name, binary_source) do
     info("upgrading sprite '#{name}' in place...")
     sprite = Sprites.sprite(client, name)
 
@@ -342,13 +376,10 @@ defmodule AodCli.Up do
 
     admin_token = env_get(env, "ADMIN_TOKEN") || "<unchanged>"
 
-    info("pushing binary (#{File.stat!(binary_path).size |> human_size}) to sprite...")
-    fs = Sprites.filesystem(sprite, "/")
-    binary = File.read!(binary_path)
-    :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
-    info("binary pushed.")
+    push_binary(sprite, binary_source)
 
     info("rewriting #{@remote_start_sh} (env shape may have changed)...")
+    fs = Sprites.filesystem(sprite, "/")
     :ok = Sprites.Filesystem.write(fs, @remote_start_sh, start_script(env), mode: 0o755)
 
     info("recreating sprite-env service so it picks up the new binary...")

@@ -22,7 +22,7 @@ defmodule AoD.Umbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "0.2.3",
+      version: "0.2.4",
       deps: deps(),
       releases: releases(),
       aliases: aliases()
