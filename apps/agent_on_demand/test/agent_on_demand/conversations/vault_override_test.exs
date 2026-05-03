@@ -1,7 +1,8 @@
 defmodule AgentOnDemand.Conversations.VaultOverrideTest do
   use AgentOnDemand.DataCase, async: false
 
-  alias AgentOnDemand.{Environments, Substitution, Vaults}
+  alias AgentOnDemand.{Environments, Vaults}
+  alias AodCli.Substitution
 
   # The rule: at sprite spawn, env secrets are merged with vault secrets
   # and the vault wins on key collision. The merge happens in

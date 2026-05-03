@@ -1,4 +1,4 @@
-defmodule AgentOnDemand.Substitution do
+defmodule AodCli.Substitution do
   @moduledoc """
   `${VAR}` substitution for agent config (`mcp_servers`) at sprite
   provision time.

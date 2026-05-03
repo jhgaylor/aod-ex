@@ -1,7 +1,7 @@
-defmodule AgentOnDemand.SubstitutionTest do
+defmodule AodCli.SubstitutionTest do
   use ExUnit.Case, async: true
 
-  alias AgentOnDemand.Substitution
+  alias AodCli.Substitution
 
   describe "strings" do
     test "${VAR} substitutes from the vars map" do

@@ -75,8 +75,10 @@ jobs:
       - name: Install deps
         run: mix deps.get --only prod
 
-      - name: Build release (linux + macos)
-        run: mix release
+      - name: Build releases (CLI + server, linux + macos for each)
+        run: |
+          mix release aod
+          mix release aod_server
 
       - name: Inspect output
         run: ls -la burrito_out/
@@ -85,12 +87,13 @@ jobs:
         id: stage
         run: |
           mkdir -p release-assets
-          # Burrito names the binaries by release name + target. Our
-          # release is `aod`, targets `linux` and `macos`. We rename
-          # to include the OS+arch to be unambiguous on the release
-          # page.
-          cp burrito_out/aod_linux  "release-assets/aod-linux-x86_64"
-          cp burrito_out/aod_macos  "release-assets/aod-macos-aarch64"
+          # Burrito names the binaries `<release_name>_<target>`. We
+          # rename to include the OS+arch in the filename so the
+          # release page is unambiguous.
+          cp burrito_out/aod_linux         "release-assets/aod-linux-x86_64"
+          cp burrito_out/aod_macos         "release-assets/aod-macos-aarch64"
+          cp burrito_out/aod_server_linux  "release-assets/aod-server-linux-x86_64"
+          cp burrito_out/aod_server_macos  "release-assets/aod-server-macos-aarch64"
           chmod +x release-assets/*
           ls -la release-assets/
 
@@ -103,3 +106,5 @@ jobs:
           files: |
             release-assets/aod-linux-x86_64
             release-assets/aod-macos-aarch64
+            release-assets/aod-server-linux-x86_64
+            release-assets/aod-server-macos-aarch64

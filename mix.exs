@@ -1,138 +1,102 @@
-defmodule AgentOnDemand.MixProject do
+defmodule AoD.Umbrella.MixProject do
+  @moduledoc """
+  Umbrella project. Two child apps:
+
+    * `apps/aod_cli/`    — the operator-side CLI (also embeds the
+      apply pipeline, `aod up`, `aod down`, etc.). Self-contained:
+      no Phoenix, no Ecto, no Horde — just HTTP + parsing + Sprites.
+    * `apps/aod_server/` — the AoD server (Phoenix + LiveView + Ecto +
+      Horde + OpenTelemetry). What `aod up` deploys into a Sprite.
+
+  Two Burrito releases produce four binaries on every release tag:
+
+    * `aod` (small, CLI) → `aod-{linux-x86_64,macos-aarch64}`
+    * `aod_server`       → `aod-server-{linux-x86_64,macos-aarch64}`
+
+  `aod up` pushes the linux server binary into a Sprite; the macOS CLI
+  binary is what operators run on their own laptop without Erlang
+  installed.
+  """
   use Mix.Project
 
   def project do
     [
-      app: :agent_on_demand,
-      version: "0.1.4",
-      elixir: "~> 1.15",
-      elixirc_paths: elixirc_paths(Mix.env()),
-      start_permanent: Mix.env() == :prod,
-      aliases: aliases(),
+      apps_path: "apps",
+      version: "0.2.0",
       deps: deps(),
       releases: releases(),
-      listeners: [Phoenix.CodeReloader],
-      escript: [
-        main_module: AodCli,
-        name: "aod",
-        app: nil,
-        embed_elixir: true
-      ],
-      dialyzer: [
-        plt_add_apps: [:ex_unit, :mix],
-        plt_file: {:no_warn, "priv/plts/agent_on_demand.plt"}
-      ]
-    ]
-  end
-
-  # Configuration for the OTP application.
-  #
-  # Type `mix help compile.app` for more information.
-  def application do
-    [
-      mod: {AgentOnDemand.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      aliases: aliases()
     ]
   end
 
   def cli do
-    [
-      preferred_envs: [precommit: :test]
-    ]
+    [preferred_envs: [precommit: :test]]
   end
 
-  # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
-  # Specifies your project dependencies.
-  #
-  # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:phoenix, "~> 1.8.5"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
-      {:ecto_sqlite3, ">= 0.0.0"},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_poller, "~> 1.0"},
-      {:jason, "~> 1.2"},
-      # Markdown → HTML for the chat view's assistant bubbles.
-      {:earmark, "~> 1.4"},
-      {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"},
-      {:sprites, path: "../sprites-ex"},
-      {:yaml_elixir, "~> 2.11"},
-      {:open_api_spex, "~> 3.21"},
-      {:libcluster, "~> 3.4"},
-      {:horde, "~> 0.9.0"},
-      # OpenTelemetry stack — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT.
-      {:opentelemetry, "~> 1.5"},
-      {:opentelemetry_api, "~> 1.4"},
-      {:opentelemetry_exporter, "~> 1.8"},
-      {:opentelemetry_phoenix, "~> 2.0"},
-      {:opentelemetry_ecto, "~> 1.2"},
-      {:opentelemetry_telemetry, "~> 1.1"},
-      {:mimic, "~> 1.7", only: :test},
-      {:stream_data, "~> 1.1", only: [:dev, :test]},
+      {:burrito, "~> 1.5", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:burrito, "~> 1.5", runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
   defp releases do
     [
       aod: [
-        # Dual-mode binary: `aod start` runs Phoenix; anything else is
-        # forwarded to AodCli.main/1 by the dispatcher overlay.
-        steps: [:assemble, &AoD.Release.dual_mode_dispatcher/1, &Burrito.wrap/1],
-        burrito: [
-          targets: [
-            linux: [
-              os: :linux,
-              cpu: :x86_64,
-              custom_erts:
-                "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5"
-            ],
-            macos: [
-              os: :darwin,
-              cpu: :aarch64,
-              custom_erts:
-                "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5"
-            ]
-          ],
-          debug: Mix.env() != :prod,
-          extra_steps: [
-            fetch: [pre: [AoD.Burrito.InjectMuslPath]],
-            patch: [post: [AoD.Burrito.CrossVersionNifCopy]]
-          ]
-        ]
+        # CLI release. `aod_cli`'s OTP app starts AodCli.Bootstrap which
+        # reads argv, dispatches AodCli.main/1, and halts.
+        applications: [aod_cli: :permanent, runtime_tools: :permanent],
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: burrito_targets()
+      ],
+      aod_server: [
+        # Full Phoenix release. Also bundles aod_cli (for AodCli.Substitution
+        # at provision time) but loads it without starting the bootstrap.
+        applications: [aod_cli: :load, agent_on_demand: :permanent],
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: burrito_targets_with_nif_workarounds()
       ]
     ]
   end
 
-  # Aliases are shortcuts or tasks specific to the current project.
-  # For example, to install project dependencies and perform other setup tasks, run:
-  #
-  #     $ mix setup
-  #
-  # See the documentation for `Mix` for more info on aliases.
+  defp burrito_targets do
+    [
+      targets: [
+        linux: [
+          os: :linux,
+          cpu: :x86_64,
+          custom_erts:
+            "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5"
+        ],
+        macos: [
+          os: :darwin,
+          cpu: :aarch64,
+          custom_erts:
+            "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5"
+        ]
+      ],
+      debug: Mix.env() != :prod
+    ]
+  end
+
+  defp burrito_targets_with_nif_workarounds do
+    Keyword.merge(burrito_targets(),
+      extra_steps: [
+        fetch: [pre: [AoD.Burrito.InjectMuslPath]],
+        patch: [post: [AoD.Burrito.CrossVersionNifCopy]]
+      ]
+    )
+  end
+
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      setup: ["deps.get", "cmd --app agent_on_demand mix ecto.setup"],
+      "ecto.reset": ["cmd --app agent_on_demand mix ecto.reset"],
       precommit: [
         "compile --warnings-as-errors",
         "deps.unlock --unused",
         "format --check-formatted",
-        # `--mute-exit-status` so credo reports issues without failing
-        # the build. We have ~60 stylistic findings (mostly aliasing and
-        # missing @moduledocs in tiny submodules) — cleaning them up is
-        # incremental work, not a release blocker.
         "credo --strict --mute-exit-status",
         "test"
       ]

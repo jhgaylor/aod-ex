@@ -13,7 +13,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   require Logger
   require OpenTelemetry.Tracer
 
-  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient, Substitution, Vaults}
+  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient, Vaults}
+  alias AodCli.Substitution
 
   # ── public api ────────────────────────────────────────────────────────────
 

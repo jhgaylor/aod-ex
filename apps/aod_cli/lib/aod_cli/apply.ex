@@ -74,7 +74,7 @@ defmodule AodCli.Apply do
   Exit code: 0 on success, 1 if any resource fails to apply.
   """
 
-  alias AgentOnDemand.Substitution
+  alias AodCli.Substitution
   alias AodCli.Api
   alias AodCli.SecretResolvers
 

@@ -46,8 +46,8 @@ defmodule AodCli.Up do
   # release.
   @app_version Mix.Project.config()[:version]
 
-  @local_binary_path "burrito_out/aod_linux"
-  @release_asset_name "aod-linux-x86_64"
+  @local_binary_path "burrito_out/aod_server_linux"
+  @release_asset_name "aod-server-linux-x86_64"
   @github_repo "jhgaylor/aod-ex"
   @remote_binary "/opt/aod/aod"
   @remote_start_sh "/opt/aod/start.sh"
@@ -460,7 +460,7 @@ defmodule AodCli.Up do
       {"PHX_SERVER", "1"},
       {"PHX_HOST", host},
       {"PORT", Integer.to_string(@port)},
-      {"RELEASE_NAME", "aod"},
+      {"RELEASE_NAME", "aod_server"},
       {"SECRET_KEY_BASE", secrets.secret_key_base},
       {"ADMIN_TOKEN", secrets.admin_token},
       {"SECRETS_KEY", secrets.secrets_key},
