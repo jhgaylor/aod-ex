@@ -84,8 +84,10 @@ defmodule AgentOnDemand.MixProject do
 
   defp releases do
     [
-      agent_on_demand: [
-        steps: [:assemble, &Burrito.wrap/1],
+      aod: [
+        # Dual-mode binary: `aod start` runs Phoenix; anything else is
+        # forwarded to AodCli.main/1 by the dispatcher overlay.
+        steps: [:assemble, &AoD.Release.dual_mode_dispatcher/1, &Burrito.wrap/1],
         burrito: [
           targets: [
             linux: [

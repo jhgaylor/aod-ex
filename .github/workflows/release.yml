@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release as (e.g. v0.1.0)"
+        required: true
+
+env:
+  MIX_ENV: prod
+  ELIXIR_VERSION: "1.18.4"
+  OTP_VERSION: "27.0"
+  ZIG_VERSION: "0.15.2"
+
+jobs:
+  build:
+    name: Build cross-platform binaries
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Erlang + Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      # Burrito cross-builds via Zig. The Burrito custom_erts URLs
+      # (mix.exs) point at OTP 28.4 musl/macos universal tarballs;
+      # Zig 0.15.2 is the version those workarounds were written
+      # against (see docs/deploy.md).
+      - name: Set up Zig ${{ env.ZIG_VERSION }}
+        run: |
+          curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
+
+      # sprites-ex is a sibling path dep — same shim as ci.yml.
+      - name: Check out sprites-ex (sibling path dep)
+        uses: actions/checkout@v4
+        with:
+          repository: superfly/sprites-ex
+          path: ../sprites-ex
+
+      - name: Cache deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-release-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+      - name: Install deps
+        run: mix deps.get --only prod
+
+      - name: Build release (linux + macos)
+        run: mix release
+
+      - name: Inspect output
+        run: ls -la burrito_out/
+
+      - name: Stage assets
+        id: stage
+        run: |
+          mkdir -p release-assets
+          # Burrito names the binaries by release name + target. Our
+          # release is `aod`, targets `linux` and `macos`. We rename
+          # to include the OS+arch to be unambiguous on the release
+          # page.
+          cp burrito_out/aod_linux  "release-assets/aod-linux-x86_64"
+          cp burrito_out/aod_macos  "release-assets/aod-macos-aarch64"
+          chmod +x release-assets/*
+          ls -la release-assets/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-assets/aod-linux-x86_64
+            release-assets/aod-macos-aarch64

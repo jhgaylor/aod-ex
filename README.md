@@ -147,11 +147,12 @@ Set that URL as `AOD_PUBLIC_URL` in `.env` and restart the server. Any sprite pr
 One-command deploy into a Sprite (the same primitive that runs each conversation):
 
 ```bash
-SPRITES_TOKEN=... MIX_ENV=prod mix release
 SPRITES_TOKEN=... mix aod.up
 # → URL: https://aod-<id>-<region>.sprites.app
 # → ADMIN_TOKEN: <copy from output, log in with this>
 ```
+
+By default `aod.up` downloads the linux binary from the GitHub release matching the current `mix.exs` version (`v0.1.0`) and caches it in `_build/aod-releases/`. Override with `--release vX.Y.Z`. If `burrito_out/aod_linux` exists locally (e.g. you ran `MIX_ENV=prod mix release` for an in-flight change), that wins.
 
 The Sprite-side service survives hibernation and auto-starts on incoming requests. Tear down with `mix aod.down <sprite-name>`.
 
@@ -160,11 +161,25 @@ The Sprite-side service survives hibernation and auto-starts on incoming request
 Re-run with the same `--name` to swap the binary on an existing deployment without losing state:
 
 ```bash
-SPRITES_TOKEN=... MIX_ENV=prod mix release
-SPRITES_TOKEN=... mix aod.up --name <existing-name>
+SPRITES_TOKEN=... mix aod.up --name <existing-name>                    # latest local-or-release
+SPRITES_TOKEN=... mix aod.up --name <existing-name> --release v0.2.0   # specific release
 ```
 
 The mix task detects the existing sprite, recovers `ADMIN_TOKEN` / `SECRETS_KEY` / `SECRET_KEY_BASE` from the `start.sh` it wrote on first deploy, pushes the new binary on top of the old one, and recreates the `sprite-env` service. The SQLite DB at `/opt/aod/data/aod.db` and the encryption key are preserved, so existing agents/environments/vaults/conversations survive.
+
+### Cutting a release
+
+Tag-push to `v*.*.*` triggers `.github/workflows/release.yml`, which builds `aod-linux-x86_64` and `aod-macos-aarch64` (Burrito + Zig 0.15.2) and attaches them to a GitHub release:
+
+```bash
+# Bump version: in mix.exs
+git commit -am "Release vX.Y.Z"
+git tag vX.Y.Z
+git push --tags
+# → CI builds + uploads release assets
+```
+
+The macOS binary is the same dual-mode build — operators can `chmod +x` it and use it as the CLI directly without Erlang installed.
 
 Requires Zig 0.15.2 on `PATH` for Burrito's cross-build, and a few Burrito workarounds documented in [docs/deploy.md](docs/deploy.md) — they're paid-down candidates, not load-bearing forever.
 

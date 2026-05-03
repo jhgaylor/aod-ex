@@ -20,14 +20,29 @@ The Sprite-side service (`sprite-env services create aod --http-port 4000`) surv
 
 ## Prerequisites
 
-- **Zig 0.15.2** — for Burrito's cross-build. `brew` ships 0.16; install 0.15.2 manually:
+- **`SPRITES_TOKEN`** in env or `.env`.
+- A linux binary. `mix aod.up` looks in two places, in order:
+  1. **Local build** at `burrito_out/aod_linux` — produced by `MIX_ENV=prod mix release` (requires Zig 0.15.2; see below). Used if it exists. Skip the local build if you don't need it.
+  2. **GitHub release** matching the project's `mix.exs` version (`v0.1.0`) — downloaded automatically and cached in `_build/aod-releases/<tag>/`. Override with `mix aod.up --release vX.Y.Z`.
+
+### Building locally (optional)
+
+Only needed if you want to push a binary you've built from your working tree (e.g. testing an unreleased change). For released versions, the automatic GitHub-release download is faster and doesn't need Zig at all.
+
+- **Zig 0.15.2** — `brew` ships 0.16; install 0.15.2 manually:
   ```bash
   curl -L https://ziglang.org/download/0.15.2/zig-aarch64-macos-0.15.2.tar.xz \
     | tar -xJ -C ~/.local && mv ~/.local/zig-aarch64-macos-0.15.2 ~/.local/zig-0.15.2
   export PATH="$HOME/.local/zig-0.15.2:$PATH"
   ```
-- **`SPRITES_TOKEN`** in env or `.env`.
-- A built linux binary at `burrito_out/agent_on_demand_linux` — produced by `MIX_ENV=prod mix release`.
+- `MIX_ENV=prod mix release` — produces `burrito_out/aod_linux` and `burrito_out/aod_macos`.
+
+## Releases (CI-built)
+
+Tag-push to `v*.*.*` triggers `.github/workflows/release.yml`, which builds both `aod-linux-x86_64` and `aod-macos-aarch64` and uploads them as GitHub release assets. Operators can:
+
+- `mix aod.up` to deploy/upgrade — fetches the linux binary itself.
+- `curl -L https://github.com/jhgaylor/aod-ex/releases/download/<tag>/aod-macos-aarch64 > aod && chmod +x aod` to use the dual-mode binary as a CLI on macOS without Erlang installed.
 
 ## What it does
 
@@ -38,13 +53,24 @@ The Sprite-side service (`sprite-env services create aod --http-port 4000`) surv
 5. `sprite-env services create aod --http-port 4000` — registers the service so it survives hibernation and so the public URL routes to port 4000.
 6. Polls `/health` — first request auto-starts the service.
 
+## Upgrade in place
+
+Re-run with the same `--name` to swap the binary on an existing deployment without losing state:
+
+```bash
+SPRITES_TOKEN=... mix aod.up --name <existing-name>                    # latest local or release
+SPRITES_TOKEN=... mix aod.up --name <existing-name> --release v0.2.0   # specific release
+```
+
+The DB at `/opt/aod/data/aod.db` and the encryption keys are recovered from `start.sh` so existing data survives.
+
 ## Tear-down
 
 ```bash
-mix aod.up --destroy <sprite-name>
+mix aod.down <sprite-name>
 ```
 
-This destroys the entire Sprite. There's no "stop without destroying" yet — re-running `aod.up` provisions a fresh sprite with a new URL.
+Destroys the entire Sprite.
 
 ---
 

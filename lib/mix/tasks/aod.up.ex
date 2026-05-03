@@ -2,8 +2,20 @@ defmodule Mix.Tasks.Aod.Up do
   @moduledoc """
   Deploy AoD into a Sprite, or upgrade an existing deployment in place.
 
-  Reads `SPRITES_TOKEN` from env (or `.env`). Builds nothing — assumes
-  the Linux Burrito binary is at `burrito_out/agent_on_demand_linux`.
+  Reads `SPRITES_TOKEN` from env (or `.env`).
+
+  ## Binary source
+
+  Pushes the Linux Burrito binary to the sprite. Resolution order:
+
+    1. Local build at `burrito_out/aod_linux` — used if it exists
+       (ideal for dev iteration: `MIX_ENV=prod mix release`).
+    2. Otherwise, downloads the binary from the project's GitHub
+       release matching the current `mix.exs` version (e.g. v0.1.0)
+       into `_build/aod-releases/<version>/`. Cached so repeat
+       deploys don't re-download.
+
+  Override the release with `--release vX.Y.Z` (or just `0.1.0`).
 
   ## Deploy (fresh)
 
@@ -26,7 +38,8 @@ defmodule Mix.Tasks.Aod.Up do
   encryption key are preserved, so existing agents/environments/
   vaults/conversations survive the upgrade.
 
-      SPRITES_TOKEN=... mix aod.up --name my-aod   # → upgrade if exists
+      SPRITES_TOKEN=... mix aod.up --name my-aod                 # local build
+      SPRITES_TOKEN=... mix aod.up --name my-aod --release v0.1.0 # specific release
 
   ## Tear down
 
@@ -36,7 +49,9 @@ defmodule Mix.Tasks.Aod.Up do
 
   @shortdoc "Deploy AoD to a Sprite (or upgrade in place)"
 
-  @binary_path "burrito_out/agent_on_demand_linux"
+  @local_binary_path "burrito_out/aod_linux"
+  @release_asset_name "aod-linux-x86_64"
+  @github_repo "jhgaylor/aod-ex"
   @remote_binary "/opt/aod/aod"
   @remote_start_sh "/opt/aod/start.sh"
   @remote_db "/opt/aod/data/aod.db"
@@ -46,7 +61,7 @@ defmodule Mix.Tasks.Aod.Up do
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
-        strict: [name: :string, destroy: :string]
+        strict: [name: :string, destroy: :string, release: :string]
       )
 
     Application.ensure_all_started(:req)
@@ -69,18 +84,86 @@ defmodule Mix.Tasks.Aod.Up do
         Mix.Tasks.Aod.Down.destroy(client, destroy)
 
       name = opts[:name] ->
+        binary_path = resolve_binary_path(opts[:release])
+
         case Sprites.get_sprite(client, name) do
-          {:ok, _info} -> upgrade(client, name)
-          {:error, {:not_found, _}} -> deploy(client, name)
+          {:ok, _info} -> upgrade(client, name, binary_path)
+          {:error, {:not_found, _}} -> deploy(client, name, binary_path)
           {:error, reason} -> Mix.raise("could not check sprite '#{name}': #{inspect(reason)}")
         end
 
       true ->
-        deploy(client, "aod-host-#{:os.system_time(:second)}")
+        binary_path = resolve_binary_path(opts[:release])
+        deploy(client, "aod-host-#{:os.system_time(:second)}", binary_path)
     end
   end
 
-  defp deploy(client, name) do
+  # Returns an absolute path to the linux binary we'll push into the
+  # sprite. Local build (`burrito_out/aod_linux`) wins if present and
+  # no explicit `--release` was passed; otherwise we download from the
+  # GitHub release.
+  defp resolve_binary_path(nil) do
+    cond do
+      File.exists?(@local_binary_path) ->
+        info("using local build: #{@local_binary_path}")
+        Path.expand(@local_binary_path)
+
+      true ->
+        version = Mix.Project.config()[:version]
+        tag = "v" <> version
+
+        info(
+          "no local build found at #{@local_binary_path}; falling back to GitHub release #{tag}"
+        )
+
+        download_release_binary(tag)
+    end
+  end
+
+  defp resolve_binary_path(release_arg) when is_binary(release_arg) do
+    tag = if String.starts_with?(release_arg, "v"), do: release_arg, else: "v" <> release_arg
+    info("using GitHub release #{tag} (--release override)")
+    download_release_binary(tag)
+  end
+
+  defp download_release_binary(tag) do
+    cache_dir = Path.join([Mix.Project.build_path(), "..", "..", "_build", "aod-releases", tag])
+    cache_dir = Path.expand(cache_dir)
+    cache_path = Path.join(cache_dir, @release_asset_name)
+
+    if File.exists?(cache_path) do
+      info("cached: #{cache_path}")
+      cache_path
+    else
+      File.mkdir_p!(cache_dir)
+
+      url =
+        "https://github.com/#{@github_repo}/releases/download/#{tag}/#{@release_asset_name}"
+
+      info("downloading #{url}...")
+
+      case Req.get(url, redirect: true, receive_timeout: 120_000, into: File.stream!(cache_path)) do
+        {:ok, %{status: 200}} ->
+          File.chmod!(cache_path, 0o755)
+          info("saved to #{cache_path} (#{File.stat!(cache_path).size |> human_size})")
+          cache_path
+
+        {:ok, %{status: status}} ->
+          File.rm(cache_path)
+
+          Mix.raise(
+            "release download failed: GET #{url} returned HTTP #{status} " <>
+              "(does the tag exist with an `#{@release_asset_name}` asset?)"
+          )
+
+        {:error, reason} ->
+          File.rm(cache_path)
+          Mix.raise("release download failed: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp deploy(client, name, binary_path) do
     info("provisioning sprite '#{name}'...")
     {:ok, sprite} = Sprites.create(client, name)
 
@@ -92,9 +175,9 @@ defmodule Mix.Tasks.Aod.Up do
     public_url = extract_public_url(sprite_info, @port) || raise("no public URL on sprite")
     info("public url: #{public_url}")
 
-    info("pushing binary (#{File.stat!(@binary_path).size |> human_size}) to sprite...")
+    info("pushing binary (#{File.stat!(binary_path).size |> human_size}) to sprite...")
     fs = Sprites.filesystem(sprite, "/")
-    binary = File.read!(@binary_path)
+    binary = File.read!(binary_path)
     :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
     info("binary pushed.")
 
@@ -161,7 +244,7 @@ defmodule Mix.Tasks.Aod.Up do
   # In-place binary swap. Recovers the existing env (admin token,
   # secrets key, etc.) from start.sh on the sprite so the freshly-
   # pushed binary can decrypt the existing SQLite DB.
-  defp upgrade(client, name) do
+  defp upgrade(client, name, binary_path) do
     info("upgrading sprite '#{name}' in place...")
     sprite = Sprites.sprite(client, name)
 
@@ -174,9 +257,9 @@ defmodule Mix.Tasks.Aod.Up do
 
     admin_token = env_get(env, "ADMIN_TOKEN") || "<unchanged>"
 
-    info("pushing binary (#{File.stat!(@binary_path).size |> human_size}) to sprite...")
+    info("pushing binary (#{File.stat!(binary_path).size |> human_size}) to sprite...")
     fs = Sprites.filesystem(sprite, "/")
-    binary = File.read!(@binary_path)
+    binary = File.read!(binary_path)
     :ok = Sprites.Filesystem.write(fs, @remote_binary, binary, mode: 0o755)
     info("binary pushed.")
 
