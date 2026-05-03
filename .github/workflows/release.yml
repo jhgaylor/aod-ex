@@ -11,8 +11,12 @@ on:
 
 env:
   MIX_ENV: prod
-  ELIXIR_VERSION: "1.18.4"
-  OTP_VERSION: "27.0"
+  # Match the target ERTS in mix.exs (custom_erts URLs pin OTP 28.4).
+  # Different local vs. target versions land BEAMs and NIFs from
+  # different OTPs into the same release and the runtime crashes
+  # at first stdio with `Function not found prim_tty:tty_create/1`.
+  ELIXIR_VERSION: "1.19.5"
+  OTP_VERSION: "28.4"
   ZIG_VERSION: "0.15.2"
 
 jobs:
