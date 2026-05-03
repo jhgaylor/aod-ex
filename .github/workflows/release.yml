@@ -77,8 +77,8 @@ jobs:
 
       - name: Build releases (CLI + server, linux + macos for each)
         run: |
-          mix release aod
-          mix release aod_server
+          mix release aod --overwrite
+          mix release aod_server --overwrite
 
       - name: Inspect output
         run: ls -la burrito_out/
