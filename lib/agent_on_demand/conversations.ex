@@ -267,7 +267,7 @@ defmodule AgentOnDemand.Conversations do
   ## Required attrs
     - `agent_id`        — agent to run
     - `prompt`          — optional first prompt (sends turn 1 immediately)
-    - `sprite_name`     — optional override; defaults to "conv-<short-id>"
+    - `sprite_name`     — optional override; defaults to "aod-conv-<short-id>"
     - `vault_id`        — optional vault whose secrets override the env's
   """
   def start_conversation(%{"agent_id" => agent_id} = attrs) do
@@ -277,7 +277,7 @@ defmodule AgentOnDemand.Conversations do
          {:ok, sandbox} <-
            create_sandbox(%{
              environment_id: agent.environment_id,
-             sprite_name: attrs["sprite_name"] || "conv-#{short_id()}",
+             sprite_name: attrs["sprite_name"] || "aod-conv-#{short_id()}",
              status: "pending"
            }),
          {:ok, conv} <-
@@ -395,7 +395,7 @@ defmodule AgentOnDemand.Conversations do
     with {:ok, new_sandbox} <-
            create_sandbox(%{
              environment_id: agent.environment_id,
-             sprite_name: "conv-#{short_id()}",
+             sprite_name: "aod-conv-#{short_id()}",
              status: "pending"
            }),
          _ <- mark_old_sandbox_terminated(conv.sandbox_id),

@@ -55,7 +55,7 @@ defmodule Mix.Tasks.Aod.Up do
   end
 
   defp deploy(client, opts) do
-    name = opts[:name] || "aod-#{:os.system_time(:second)}"
+    name = opts[:name] || "aod-host-#{:os.system_time(:second)}"
 
     info("provisioning sprite '#{name}'...")
     {:ok, sprite} = Sprites.create(client, name)

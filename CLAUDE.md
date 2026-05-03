@@ -56,6 +56,15 @@ If "interrupt" on the API talks to "stop" on the CLI, fix it now — the cost gr
 
 Don't use the word "session" for any of these. The legacy Python AoD overloaded it (sprite lifespan AND chat history) and that's the naming bug we fixed at the rewrite.
 
+## Sprite naming convention
+
+Every default-named sprite AoD creates is prefixed `aod-` so `Sprites.list_sprites(client, prefix: "aod-")` returns "everything this AoD instance ever made" (the Sprites API has no first-class metadata/labels field — the prefix is our origin marker). Subkinds:
+
+- `aod-conv-<short-id>` — per-conversation sprite (`Conversations.start_conversation`)
+- `aod-host-<unix-ts>` — the AoD host itself (`mix aod.up`)
+
+Operator-supplied `sprite_name` overrides bypass the prefix, by design.
+
 ## Architecture (one paragraph)
 
 `AgentOnDemand.Conversations.ConversationServer` is the brain — a GenServer per running conversation, supervised by `AgentOnDemand.ConversationSupervisor` (a `DynamicSupervisor`), addressed via `AgentOnDemand.ConversationRegistry`. On start it creates a sprite (`Sprites.create`), mounts bundled skills from `priv/sprite_skills/`, writes runtime-specific config (e.g. claude's `~/.claude.json` for MCP), runs the env's `setup_script`, then spawns the runtime CLI with the prompt on stdin via `Sprites.spawn`. stdout/stderr lines are persisted to `log_events` and broadcast on `Phoenix.PubSub` topic `"conv:<id>"`. SSE controller subscribes + replays from `Last-Event-ID` + live-tails. claude `--resume` uses the session_id captured from claude's stream-json `init` message and persisted to `conversations.runtime_session_id`.
