@@ -49,3 +49,11 @@ aod.yml
 
 # Static docs build output (mkdocs)
 /_site/
+
+# Built escript outputs.
+/aod
+/apps/*/aod
+
+# Burrito output.
+/burrito_out/
+
