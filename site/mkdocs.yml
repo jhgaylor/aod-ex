@@ -1,0 +1,81 @@
+site_name: Agent on Demand
+site_description: A REST API for spawning AI coding agents inside Sprite microVMs.
+site_url: https://ravi-hq.github.io/agent-on-demand-ex/
+repo_url: https://github.com/ravi-hq/agent-on-demand-ex
+repo_name: ravi-hq/agent-on-demand-ex
+edit_uri: edit/main/site/docs/
+
+# `site/docs/` is partly hand-written and partly mirrored from
+# elsewhere in the repo (priv/help/, clients/*/README.md,
+# docs/{deploy,runbook}.md) by the `make sync` target before mkdocs
+# runs. See site/sync_content.sh for the mapping.
+docs_dir: docs
+site_dir: ../_site
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Install: install.md
+      - Quickstart: quickstart.md
+  - Concepts:
+      - Agents: concepts/agents.md
+      - Environments: concepts/environments.md
+      - Manifest (aod apply): concepts/manifest.md
+      - Spawning sub-agents: concepts/spawning.md
+      - API reference: concepts/api.md
+  - SDKs:
+      - Python: sdks/python.md
+      - TypeScript: sdks/typescript.md
+      - Go: sdks/go.md
+      - Elixir: sdks/elixir.md
+  - Operating:
+      - Deploy: operating/deploy.md
+      - Runbook: operating/runbook.md

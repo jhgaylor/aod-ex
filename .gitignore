@@ -46,3 +46,6 @@ agent_on_demand-*.tar
 
 # Operator's local AoD manifest — contains MCP bearer tokens.
 aod.yml
+
+# Static docs build output (mkdocs)
+/_site/
