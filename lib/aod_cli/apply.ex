@@ -203,17 +203,32 @@ defmodule AodCli.Apply do
     end
   end
 
-  defp resolve_secrets_external_refs(secrets) do
+  # Public for tests; the `finder` arg lets tests inject a fake
+  # resolver registry without touching SecretResolvers' compile-time
+  # @resolvers list.
+  @doc false
+  def resolve_secrets_external_refs(secrets, finder \\ &SecretResolvers.for_value/1) do
     {resolved, failures} =
       Enum.reduce(secrets, {%{}, []}, fn {k, v}, {acc, fails} ->
-        case SecretResolvers.for_value(v) do
+        case finder.(v) do
           nil ->
             {Map.put(acc, k, v), fails}
 
           mod ->
             case mod.read(v) do
-              {:ok, plaintext} -> {Map.put(acc, k, plaintext), fails}
-              {:error, reason} -> {acc, [{k, v, mod, reason} | fails]}
+              # An empty value back from an external CLI nearly always
+              # means "secret not found" — Infisical at least returns
+              # OK with empty stdout when the requested key isn't in
+              # the env. Surface as a failure rather than silently
+              # writing "" to the DB and letting the API 422 us.
+              {:ok, ""} ->
+                {acc, [{k, v, mod, :empty_value} | fails]}
+
+              {:ok, plaintext} ->
+                {Map.put(acc, k, plaintext), fails}
+
+              {:error, reason} ->
+                {acc, [{k, v, mod, reason} | fails]}
             end
         end
       end)
@@ -238,7 +253,7 @@ defmodule AodCli.Apply do
       Enum.map_join(errors, "\n", fn {name, failures} ->
         rows =
           Enum.map_join(failures, "\n", fn {k, ref, mod, reason} ->
-            "    #{k} (#{ref}): " <> mod.format_error(reason)
+            "    #{k} (#{ref}): " <> describe_resolver_error(mod, reason)
           end)
 
         "  #{name}:\n" <> rows
@@ -246,6 +261,15 @@ defmodule AodCli.Apply do
 
     "apply-time secret resolution failed:\n" <> body
   end
+
+  # `:empty_value` is enforced at the apply layer (resolvers don't
+  # know to fail on empty), so describe it here rather than relying on
+  # each resolver's format_error/1 catch-all.
+  defp describe_resolver_error(_mod, :empty_value) do
+    "resolver returned an empty value (secret missing or wrong env/path?)"
+  end
+
+  defp describe_resolver_error(mod, reason), do: mod.format_error(reason)
 
   @doc false
   def build_apply_vars(var_args) do

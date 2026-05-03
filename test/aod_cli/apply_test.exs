@@ -180,6 +180,63 @@ defmodule AodCli.ApplyTest do
     end
   end
 
+  describe "resolve_secrets_external_refs/2 — empty-value rule" do
+    # A fake resolver that returns whatever value the test set up
+    # via the process dictionary, so different tests can exercise
+    # different return values without sharing module state.
+    defmodule FakeResolver do
+      @behaviour AodCli.SecretResolver
+      def prefix, do: "fake://"
+      def read(ref), do: Process.get({__MODULE__, ref}, {:ok, "default"})
+      def format_error(reason), do: "fake error: " <> inspect(reason)
+    end
+
+    defp finder(value) do
+      if is_binary(value) and String.starts_with?(value, "fake://"), do: FakeResolver, else: nil
+    end
+
+    test "treats {:ok, \"\"} from a resolver as :empty_value failure" do
+      Process.put({FakeResolver, "fake://k"}, {:ok, ""})
+
+      assert {:error, [{"K", "fake://k", FakeResolver, :empty_value}]} =
+               Apply.resolve_secrets_external_refs(%{"K" => "fake://k"}, &finder/1)
+    end
+
+    test "non-empty value passes through" do
+      Process.put({FakeResolver, "fake://k"}, {:ok, "real-secret"})
+
+      assert {:ok, %{"K" => "real-secret"}} =
+               Apply.resolve_secrets_external_refs(%{"K" => "fake://k"}, &finder/1)
+    end
+
+    test "literal values (no scheme match) pass through untouched" do
+      assert {:ok, %{"K" => "literal-token"}} =
+               Apply.resolve_secrets_external_refs(%{"K" => "literal-token"}, &finder/1)
+    end
+
+    test "{:error, reason} from resolver is preserved" do
+      Process.put({FakeResolver, "fake://k"}, {:error, :some_failure})
+
+      assert {:error, [{"K", "fake://k", FakeResolver, :some_failure}]} =
+               Apply.resolve_secrets_external_refs(%{"K" => "fake://k"}, &finder/1)
+    end
+
+    test "collects multiple failures across the secrets map in one call" do
+      Process.put({FakeResolver, "fake://a"}, {:ok, ""})
+      Process.put({FakeResolver, "fake://b"}, {:error, :not_found})
+      Process.put({FakeResolver, "fake://c"}, {:ok, "fine"})
+
+      assert {:error, failures} =
+               Apply.resolve_secrets_external_refs(
+                 %{"A" => "fake://a", "B" => "fake://b", "C" => "fake://c"},
+                 &finder/1
+               )
+
+      reasons = failures |> Enum.map(fn {_k, _ref, _mod, r} -> r end) |> Enum.sort()
+      assert reasons == [:empty_value, :not_found]
+    end
+  end
+
   describe "build_apply_vars/1" do
     setup do
       # Snapshot keys we mutate so tests are isolated.
