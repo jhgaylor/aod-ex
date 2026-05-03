@@ -53,11 +53,10 @@ jobs:
           "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
 
       # sprites-ex is a sibling path dep — same shim as ci.yml.
-      - name: Check out sprites-ex (sibling path dep)
-        uses: actions/checkout@v4
-        with:
-          repository: superfly/sprites-ex
-          path: ../sprites-ex
+      # Raw git clone because actions/checkout refuses paths outside
+      # $GITHUB_WORKSPACE.
+      - name: Clone sprites-ex (sibling path dep)
+        run: git clone --depth 1 https://github.com/superfly/sprites-ex.git ../sprites-ex
 
       - name: Cache deps + _build
         uses: actions/cache@v4
