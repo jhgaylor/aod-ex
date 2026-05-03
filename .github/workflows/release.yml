@@ -58,9 +58,12 @@ jobs:
 
       # sprites-ex is a sibling path dep — same shim as ci.yml.
       # Raw git clone because actions/checkout refuses paths outside
-      # $GITHUB_WORKSPACE.
+      # $GITHUB_WORKSPACE. Clone the ravi-hq fork's `fix/filesystem-urls`
+      # branch — it has two URL fixes (filesystem + attach_session)
+      # not yet merged into superfly/sprites-ex's main, and they're
+      # load-bearing for `aod up`.
       - name: Clone sprites-ex (sibling path dep)
-        run: git clone --depth 1 https://github.com/superfly/sprites-ex.git ../sprites-ex
+        run: git clone --depth 1 --branch fix/filesystem-urls https://github.com/ravi-hq/sprites-ex.git ../sprites-ex
 
       - name: Cache deps + _build
         uses: actions/cache@v4

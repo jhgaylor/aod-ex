@@ -26,14 +26,13 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
           elixir-version: ${{ env.ELIXIR_VERSION }}
 
-      # The sprites-ex dep is a sibling path. CI checks out only
-      # this repo, so we shim the path to ../sprites-ex with the
-      # upstream repo at HEAD. We can't use actions/checkout for
-      # this — it refuses paths outside $GITHUB_WORKSPACE. Raw
-      # `git clone` works fine. Pin via a submodule or a CI secret
-      # if we want reproducibility.
+      # The sprites-ex dep is a sibling path. CI checks out only this
+      # repo, so we shim the path to ../sprites-ex via raw git clone
+      # (actions/checkout refuses paths outside $GITHUB_WORKSPACE).
+      # Branch `fix/filesystem-urls` on the ravi-hq fork carries two
+      # URL fixes that haven't landed in superfly/sprites-ex's main yet.
       - name: Clone sprites-ex (sibling path dep)
-        run: git clone --depth 1 https://github.com/superfly/sprites-ex.git ../sprites-ex
+        run: git clone --depth 1 --branch fix/filesystem-urls https://github.com/ravi-hq/sprites-ex.git ../sprites-ex
 
       - name: Cache deps + _build
         uses: actions/cache@v4
