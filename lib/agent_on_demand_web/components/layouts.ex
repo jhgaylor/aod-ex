@@ -42,6 +42,7 @@ defmodule AgentOnDemandWeb.Layouts do
             </div>
             <.nav_link href={~p"/agents"} label="Agents" current={@current_path}/>
             <.nav_link href={~p"/environments"} label="Environments" current={@current_path}/>
+            <.nav_link href={~p"/vaults"} label="Vaults" current={@current_path}/>
             <.nav_link href={~p"/audit"} label="Audit log" current={@current_path}/>
           </div>
 

@@ -16,20 +16,32 @@ defmodule AodCli.Conv do
 
   def run(args) do
     {opts, positional, _} =
-      OptionParser.parse(args, strict: [prompt: :string], aliases: [p: :prompt])
+      OptionParser.parse(args,
+        strict: [prompt: :string, vault: :string],
+        aliases: [p: :prompt]
+      )
 
     [target | _] = positional ++ [nil]
-    target || AodCli.die("usage: aod run <agent-name-or-id> -p \"<prompt>\"")
+    target || AodCli.die("usage: aod run <agent-name-or-id> -p \"<prompt>\" [--vault <name|id>]")
     prompt_text = opts[:prompt] || AodCli.die("missing -p <prompt>")
 
     agent_id = resolve_agent(target)
 
-    {:ok, %{"data" => conv}} =
-      Api.post("/conversations", %{agent_id: agent_id, prompt: prompt_text})
+    body =
+      %{agent_id: agent_id, prompt: prompt_text}
+      |> maybe_put_vault(opts[:vault])
+
+    {:ok, %{"data" => conv}} = Api.post("/conversations", body)
 
     IO.puts(:stderr, "▸ conversation #{conv["id"]}")
     follow_until_idle(conv["id"])
   end
+
+  defp maybe_put_vault(body, nil), do: body
+  defp maybe_put_vault(body, ""), do: body
+
+  defp maybe_put_vault(body, target),
+    do: Map.put(body, :vault_id, AodCli.Vault.resolve_id(target))
 
   defp resolve_agent(target) do
     if uuid?(target) do

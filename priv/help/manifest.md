@@ -8,7 +8,7 @@ A `aod.yml` is a multi-document YAML file. Each doc is one resource with three t
 
 ```yaml
 apiVersion: aod/v1
-kind: Environment | Agent
+kind: Environment | Vault | Agent
 metadata:
   name: <unique-on-operator-side>
 spec:
@@ -19,7 +19,7 @@ The `metadata.name` is the upsert key. If a resource with that name exists, it's
 
 ## Order is irrelevant inside the file
 
-`aod apply` reconciles **environments first**, then agents — so an agent doc can reference an environment by name (`spec.environment: my-env`) even if that environment is defined later in the file.
+`aod apply` reconciles **environments first, vaults second, agents last** — so an agent doc can reference an environment by name (`spec.environment: my-env`) even if that environment is defined later in the file. Vaults aren't referenced from agents (they're picked per-conversation), so the order between envs and vaults doesn't matter functionally; the predictable ordering just makes the apply output easier to skim.
 
 ## Example
 
@@ -33,6 +33,17 @@ spec:
   packages:
     apt: [jq, ripgrep]
   setup_script: cd /workspace && uv sync
+
+---
+apiVersion: aod/v1
+kind: Vault
+metadata:
+  name: alice
+spec:
+  description: Alice's credentials
+  secrets:
+    GITHUB_TOKEN: ghp_alice_...
+    NPM_TOKEN: npm_alice_...
 
 ---
 apiVersion: aod/v1
@@ -60,7 +71,10 @@ spec:
 Output uses `+` for create, `~` for update, one line per resource:
 
 ```
-env  +  ravi-hq
+env    +  ravi-hq
+vault  +  alice
+  secret  ~  alice/GITHUB_TOKEN
+  secret  ~  alice/NPM_TOKEN
 agent  ~  researcher
 ```
 

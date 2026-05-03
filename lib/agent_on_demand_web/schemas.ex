@@ -38,6 +38,7 @@ defmodule AgentOnDemandWeb.Schemas do
         sandbox_id: %Schema{type: :string, format: :uuid, nullable: true},
         sandbox: %Schema{oneOf: [Sandbox], nullable: true},
         agent_id: %Schema{type: :string, format: :uuid, nullable: true},
+        vault_id: %Schema{type: :string, format: :uuid, nullable: true},
         runtime: %Schema{type: :string, enum: ~w(claude codex gemini opencode)},
         status: %Schema{
           type: :string,
@@ -83,6 +84,13 @@ defmodule AgentOnDemandWeb.Schemas do
       type: :object,
       properties: %{
         agent_id: %Schema{type: :string, format: :uuid},
+        vault_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "Optional vault whose secrets override the environment's baseline at sprite spawn."
+        },
         prompt: %Schema{type: :string, description: "Optional first turn prompt."},
         sprite_name: %Schema{
           type: :string,
@@ -395,6 +403,134 @@ defmodule AgentOnDemandWeb.Schemas do
 
     OpenApiSpex.schema(%{
       title: "SecretRequest",
+      type: :object,
+      properties: %{
+        key: %Schema{type: :string},
+        value: %Schema{type: :string, description: "Secret value (write-only)."}
+      },
+      required: [:key, :value]
+    })
+  end
+
+  defmodule Vault do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "Vault",
+      description:
+        "A free-floating bag of env-var overrides selected at conversation creation. " <>
+          "Vault values override an environment's baseline secrets when the same key is set on both.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        description: %Schema{type: :string},
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:id, :name]
+    })
+  end
+
+  defmodule VaultResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultResponse",
+      type: :object,
+      properties: %{data: Vault},
+      required: [:data]
+    })
+  end
+
+  defmodule VaultListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultListResponse",
+      type: :object,
+      properties: %{data: %Schema{type: :array, items: Vault}},
+      required: [:data]
+    })
+  end
+
+  defmodule VaultRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultRequest",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 200},
+        description: %Schema{type: :string}
+      },
+      required: [:name]
+    })
+  end
+
+  defmodule VaultUpdate do
+    require OpenApiSpex
+
+    @moduledoc """
+    Partial update — every field is optional. Used by `PUT /api/vaults/:id`.
+    """
+
+    OpenApiSpex.schema(%{
+      title: "VaultUpdate",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 200},
+        description: %Schema{type: :string}
+      }
+    })
+  end
+
+  defmodule VaultSecret do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultSecret",
+      description:
+        "A named secret in a vault. Values are write-only — the API never returns them.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        key: %Schema{type: :string},
+        vault_id: %Schema{type: :string, format: :uuid},
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:id, :key, :vault_id]
+    })
+  end
+
+  defmodule VaultSecretResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultSecretResponse",
+      type: :object,
+      properties: %{data: VaultSecret},
+      required: [:data]
+    })
+  end
+
+  defmodule VaultSecretListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultSecretListResponse",
+      type: :object,
+      properties: %{data: %Schema{type: :array, items: VaultSecret}},
+      required: [:data]
+    })
+  end
+
+  defmodule VaultSecretRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "VaultSecretRequest",
       type: :object,
       properties: %{
         key: %Schema{type: :string},

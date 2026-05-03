@@ -13,7 +13,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   require Logger
   require OpenTelemetry.Tracer
 
-  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient}
+  alias AgentOnDemand.{Agents, Conversations, Environments, SpritesClient, Vaults}
 
   # ── public api ────────────────────────────────────────────────────────────
 
@@ -123,7 +123,8 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     sandbox = Conversations.get_sandbox!(state.sandbox_id)
     agent = if conv.agent_id, do: Agents.get_agent!(conv.agent_id), else: nil
     env = if agent && agent.environment_id, do: Environments.get_environment(agent.environment_id)
-    secrets = if env, do: Environments.decrypted_env(env), else: %{}
+    vault = if conv.vault_id, do: Vaults.get_vault(conv.vault_id)
+    secrets = merge_secrets(env, vault)
     state = %{state | runtime_session_id: conv.runtime_session_id}
 
     case sandbox.status do
@@ -459,6 +460,14 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       Enum.map(secrets, fn {k, v} -> {k, v} end)
   end
 
+  # Env secrets first, vault overrides last — vault wins on key collision.
+  # Same merged map feeds repositories[].secret_key resolution.
+  defp merge_secrets(env, vault) do
+    env_secrets = if env, do: Environments.decrypted_env(env), else: %{}
+    vault_secrets = if vault, do: Vaults.decrypted_env(vault), else: %{}
+    Map.merge(env_secrets, vault_secrets)
+  end
+
   # Inject the W3C trace context as TRACEPARENT into the sprite env when
   # we're inside an active OTel span. claude / codex / gemini / opencode
   # all read TRACEPARENT and tag their API calls into the trace, so a
@@ -765,30 +774,30 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
               current_turn_span: turn_span
           }
 
-      {:error, reason} ->
-        Logger.error("spawn failed: #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.error("spawn failed: #{inspect(reason)}")
 
-        {:ok, _} =
-          Conversations.update_turn(turn, %{
-            status: "failed",
-            ended_at: now()
+          {:ok, _} =
+            Conversations.update_turn(turn, %{
+              status: "failed",
+              ended_at: now()
+            })
+
+          publish_stage(state.conversation_id, "turn", "failed", %{
+            turn_id: turn.id,
+            reason: inspect(reason)
           })
 
-        publish_stage(state.conversation_id, "turn", "failed", %{
-          turn_id: turn.id,
-          reason: inspect(reason)
-        })
+          # Spawn never started; close the span we just opened so it
+          # doesn't leak.
+          OpenTelemetry.Tracer.set_status(
+            OpenTelemetry.status(:error, "spawn_failed: #{inspect(reason)}")
+          )
 
-        # Spawn never started; close the span we just opened so it
-        # doesn't leak.
-        OpenTelemetry.Tracer.set_status(
-          OpenTelemetry.status(:error, "spawn_failed: #{inspect(reason)}")
-        )
+          OpenTelemetry.Tracer.end_span(turn_span)
+          OpenTelemetry.Tracer.set_current_span(previous_span)
 
-        OpenTelemetry.Tracer.end_span(turn_span)
-        OpenTelemetry.Tracer.set_current_span(previous_span)
-
-        state
+          state
       end
     after
       # The successful path keeps the span open until :exit; the error

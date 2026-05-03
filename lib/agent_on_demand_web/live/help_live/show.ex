@@ -15,6 +15,7 @@ defmodule AgentOnDemandWeb.HelpLive.Show do
     {"quickstart", "Quickstart"},
     {"agents", "Agents"},
     {"environments", "Environments"},
+    {"vaults", "Vaults"},
     {"manifest", "Manifest"},
     {"spawning", "Spawning sub-agents"},
     {"api", "API reference"},

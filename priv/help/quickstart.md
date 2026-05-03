@@ -72,6 +72,7 @@ curl -sN --max-time 5 \
 
 ## What's next
 
-- **Manifest** — declare agents and environments in YAML and `aod apply` them.
+- **Vaults** — pick a bag of credential overrides at conversation creation (e.g. run as a different GitHub user).
+- **Manifest** — declare agents, environments, and vaults in YAML and `aod apply` them.
 - **Spawning sub-agents** — agents inside sprites can call back to spawn more agents.
 - **API reference** — full OpenAPI at [/api/docs](/api/docs).

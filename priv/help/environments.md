@@ -49,6 +49,8 @@ curl -s -X POST "$AOD_BASE_URL/api/environments/$ENV_ID/secrets" \
 
 Secrets are **never** returned by the API — only used internally during provisioning.
 
+> Need to override these per-conversation (e.g. run as a different GitHub user)? See [Vaults](/help/vaults). A vault selected at conversation creation is layered over the environment's secrets, with vault values winning on key collision.
+
 ## SSH clones
 
 Use `ssh_key_secret` instead of `secret_key`:

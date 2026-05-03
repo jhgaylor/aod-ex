@@ -215,6 +215,9 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
             sprite: {@conv.sandbox.sprite_name}
             <span class="text-zinc-400">({String.slice(@conv.sandbox.id, 0, 8)} · {@conv.sandbox.status})</span>
           </div>
+          <div :if={@conv.vault} class="text-sm text-zinc-500">
+            vault: <.link navigate={~p"/vaults/#{@conv.vault.id}/edit"} class="font-medium underline">{@conv.vault.name}</.link>
+          </div>
         </div>
         <div class="flex gap-2">
           <.btn_secondary :if={@conv.status == "running"}
@@ -761,7 +764,8 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   #   - framework stage (apt under packages, etc.) → show the stage
   #     name in the same amber as stage markers
   #   - turn output → show the stream (stdout/stderr) like before
-  defp raw_output_tag(%{stage: s, stream: stream}) when is_binary(s) and s != "" and s != "turn" do
+  defp raw_output_tag(%{stage: s, stream: stream})
+       when is_binary(s) and s != "" and s != "turn" do
     color = if stream == "stderr", do: "text-rose-400", else: "text-amber-400"
     {s, color}
   end
@@ -979,7 +983,13 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   # ── claude (stream-json) ───────────────────────────────────────────
   defp event_blocks("claude", %{"type" => "system", "subtype" => "init"} = ev) do
     model = ev["model"]
-    tool_count = ev["tools"] |> case do l when is_list(l) -> length(l); _ -> nil end
+
+    tool_count =
+      ev["tools"]
+      |> case do
+        l when is_list(l) -> length(l)
+        _ -> nil
+      end
 
     summary =
       ["session started", model, tool_count && "#{tool_count} tools"]
@@ -1110,7 +1120,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp event_blocks("gemini", %{"type" => "tool_result", "output" => out} = ev)
        when is_binary(out),
-       do: [%{kind: :tool_result, tool_id: ev["tool_id"], body: out, error?: ev["status"] != "success"}]
+       do: [
+         %{
+           kind: :tool_result,
+           tool_id: ev["tool_id"],
+           body: out,
+           error?: ev["status"] != "success"
+         }
+       ]
 
   defp event_blocks("gemini", %{"type" => "result"} = ev) do
     stats = ev["stats"] || %{}

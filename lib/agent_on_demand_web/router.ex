@@ -68,6 +68,9 @@ defmodule AgentOnDemandWeb.Router do
       live "/environments", EnvironmentsLive.Index, :index
       live "/environments/new", EnvironmentsLive.Form, :new
       live "/environments/:id/edit", EnvironmentsLive.Form, :edit
+      live "/vaults", VaultsLive.Index, :index
+      live "/vaults/new", VaultsLive.Form, :new
+      live "/vaults/:id/edit", VaultsLive.Form, :edit
       live "/audit", AuditLive.Index, :index
       live "/help", HelpLive.Show, :index
       live "/help/:topic", HelpLive.Show, :show
@@ -79,6 +82,10 @@ defmodule AgentOnDemandWeb.Router do
 
     resources "/environments", EnvironmentController, except: [:new, :edit] do
       resources "/secrets", SecretController, only: [:index, :create, :delete]
+    end
+
+    resources "/vaults", VaultController, except: [:new, :edit] do
+      resources "/secrets", VaultSecretController, only: [:index, :create, :delete]
     end
 
     resources "/agents", AgentController, except: [:new, :edit]

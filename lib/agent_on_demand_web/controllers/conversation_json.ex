@@ -11,6 +11,7 @@ defmodule AgentOnDemandWeb.ConversationJSON do
       sandbox_id: c.sandbox_id,
       sandbox: sandbox_data(c.sandbox),
       agent_id: c.agent_id,
+      vault_id: c.vault_id,
       runtime: c.runtime,
       status: c.status,
       runtime_session_id: c.runtime_session_id,

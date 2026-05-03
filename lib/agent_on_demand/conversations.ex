@@ -83,13 +83,13 @@ defmodule AgentOnDemand.Conversations do
   def get_conversation(id) do
     Conversation
     |> Repo.get(id)
-    |> Repo.preload([:sandbox, :agent])
+    |> Repo.preload([:sandbox, :agent, :vault])
   end
 
   def get_conversation!(id) do
     Conversation
     |> Repo.get!(id)
-    |> Repo.preload([:sandbox, :agent])
+    |> Repo.preload([:sandbox, :agent, :vault])
   end
 
   def create_conversation(attrs) do
@@ -268,10 +268,12 @@ defmodule AgentOnDemand.Conversations do
     - `agent_id`        — agent to run
     - `prompt`          — optional first prompt (sends turn 1 immediately)
     - `sprite_name`     — optional override; defaults to "conv-<short-id>"
+    - `vault_id`        — optional vault whose secrets override the env's
   """
   def start_conversation(%{"agent_id" => agent_id} = attrs) do
     with %Agents.Agent{} = agent <- Agents.get_agent(agent_id) || {:error, :not_found},
          {:ok, runtime_module} <- AgentOnDemand.Runtimes.for_runtime(agent.runtime),
+         {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"]),
          {:ok, sandbox} <-
            create_sandbox(%{
              environment_id: agent.environment_id,
@@ -282,6 +284,7 @@ defmodule AgentOnDemand.Conversations do
            create_conversation(%{
              sandbox_id: sandbox.id,
              agent_id: agent.id,
+             vault_id: vault_id,
              runtime: agent.runtime,
              status: "pending"
            }) do
@@ -305,6 +308,16 @@ defmodule AgentOnDemand.Conversations do
   end
 
   defp short_id, do: Ecto.UUID.generate() |> binary_part(0, 8)
+
+  defp resolve_vault_id(nil), do: {:ok, nil}
+  defp resolve_vault_id(""), do: {:ok, nil}
+
+  defp resolve_vault_id(id) when is_binary(id) do
+    case AgentOnDemand.Vaults.get_vault(id) do
+      nil -> {:error, :vault_not_found}
+      vault -> {:ok, vault.id}
+    end
+  end
 
   @doc """
   Resume a conversation whose ConversationServer is gone (e.g. after a

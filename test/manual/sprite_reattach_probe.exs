@@ -27,6 +27,7 @@ parent = self()
 
 destroy = fn ->
   IO.puts("# destroying sprite #{name}")
+
   case Sprites.destroy(sprite) do
     :ok -> IO.puts("# destroyed")
     other -> IO.inspect(other, label: "destroy")
@@ -41,8 +42,7 @@ try do
   IO.puts("\n=== phase 1: spawn detachable bash ===")
 
   {:ok, cmd1} =
-    Sprites.spawn(sprite, "bash",
-      ["-c", "echo BEFORE; sleep 20; echo AFTER; echo EXIT_OK"],
+    Sprites.spawn(sprite, "bash", ["-c", "echo BEFORE; sleep 20; echo AFTER; echo EXIT_OK"],
       owner: self(),
       detachable: true
     )

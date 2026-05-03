@@ -48,9 +48,11 @@ If "interrupt" on the API talks to "stop" on the CLI, fix it now — the cost gr
 ## Schema vocabulary
 
 - **Sandbox** — the lifespan of one Sprite. Statuses: `pending → starting → ready → terminated|failed`.
-- **Conversation** — one chat with one agent inside one sandbox. Statuses: `pending → running ⇄ idle → completed|failed|terminated`. Owns turns. v1 keeps Sandbox⇄Conversation 1:1.
+- **Conversation** — one chat with one agent inside one sandbox, optionally bound to one vault. Statuses: `pending → running ⇄ idle → completed|failed|terminated`. Owns turns. v1 keeps Sandbox⇄Conversation 1:1.
 - **Turn** — one prompt → exit_code cycle. Statuses: `pending → running → completed|failed|interrupted`.
 - **LogEvent** — the firehose. `kind: output` (stdout/stderr from the runtime CLI) or `kind: stage` (lifecycle markers — provision, setup, turn). Integer PK so SSE can use `Last-Event-ID` for resume.
+- **Environment** — a sandbox shape: packages, env_vars, repositories, networking, setup_script. Owns baseline `Secrets` (AES-256-GCM at rest).
+- **Vault** — a free-floating bag of `VaultSecrets` (same crypto). Picked per-conversation. At sprite spawn, env secrets are merged with vault secrets and **vault wins on key collision**. Use it to switch GitHub identity, run as a teammate, or run as a virtual persona — without redefining the environment.
 
 Don't use the word "session" for any of these. The legacy Python AoD overloaded it (sprite lifespan AND chat history) and that's the naming bug we fixed at the rewrite.
 

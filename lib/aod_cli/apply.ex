@@ -1,25 +1,27 @@
 defmodule AodCli.Apply do
   @moduledoc """
   Idempotent `aod apply -f <file>`. Reads a multi-document YAML file
-  describing AoD `Environment` and `Agent` resources, and reconciles
-  the running instance to match.
+  describing AoD `Environment`, `Vault`, and `Agent` resources, and
+  reconciles the running instance to match.
 
   Each resource has a `metadata.name` that's the unique identifier on
   the operator side. We look up the matching record by name via the
   API; if it exists we PUT the spec, if not we POST. Order in the
-  file doesn't matter — environments are always reconciled first so
-  agents that reference one (`spec.environment: <name>`) can resolve.
+  file doesn't matter — environments and vaults are always reconciled
+  before agents so `spec.environment: <name>` references resolve.
 
   Resource shape:
 
       ---
       apiVersion: aod/v1
-      kind: Environment | Agent
+      kind: Environment | Vault | Agent
       metadata:
         name: <unique-on-operator-side>
       spec:
         # ... fields matching the API schemas ...
         # for Agent: optional `environment: <env-name>` resolves to env id
+        # for Vault: optional `secrets: { KEY: value }` map upserted as
+        #   vault secrets after the vault row itself is reconciled
 
   Exit code: 0 on success, 1 if any resource fails to apply.
   """
@@ -34,12 +36,10 @@ defmodule AodCli.Apply do
       |> File.read!()
       |> parse_docs!()
 
-    {envs, agents, unknown} = group(docs)
+    {envs, vaults, agents, unknown} = group(docs)
 
     if unknown != [] do
-      AodCli.die(
-        "unsupported kinds in #{path}: " <> Enum.map_join(unknown, ", ", & &1["kind"])
-      )
+      AodCli.die("unsupported kinds in #{path}: " <> Enum.map_join(unknown, ", ", & &1["kind"]))
     end
 
     env_id_by_name =
@@ -50,6 +50,8 @@ defmodule AodCli.Apply do
           :error -> acc
         end
       end)
+
+    Enum.each(vaults, &apply_vault/1)
 
     Enum.each(agents, &apply_agent(&1, env_id_by_name))
 
@@ -73,11 +75,12 @@ defmodule AodCli.Apply do
   end
 
   defp group(docs) do
-    Enum.reduce(docs, {[], [], []}, fn doc, {envs, agents, unknown} ->
+    Enum.reduce(docs, {[], [], [], []}, fn doc, {envs, vaults, agents, unknown} ->
       case doc["kind"] do
-        "Environment" -> {envs ++ [doc], agents, unknown}
-        "Agent" -> {envs, agents ++ [doc], unknown}
-        _ -> {envs, agents, unknown ++ [doc]}
+        "Environment" -> {envs ++ [doc], vaults, agents, unknown}
+        "Vault" -> {envs, vaults ++ [doc], agents, unknown}
+        "Agent" -> {envs, vaults, agents ++ [doc], unknown}
+        _ -> {envs, vaults, agents, unknown ++ [doc]}
       end
     end)
   end
@@ -114,6 +117,58 @@ defmodule AodCli.Apply do
     end
   end
 
+  defp apply_vault(doc) do
+    name = required(doc, "metadata.name")
+    spec = doc["spec"] || %{}
+    secrets = spec["secrets"] || %{}
+
+    body =
+      spec
+      |> Map.delete("secrets")
+      |> Map.put("name", name)
+
+    vault =
+      case fetch_by_name("/vaults", name) do
+        {:ok, %{"id" => id} = existing} ->
+          case Api.put("/vaults/#{id}", body) do
+            {:ok, %{"data" => v}} ->
+              IO.puts("vault  ~  #{name}")
+              v
+
+            {:error, err} ->
+              warn("vault  !  #{name} (update failed): #{inspect(err)}")
+              existing
+          end
+
+        :not_found ->
+          case Api.post("/vaults", body) do
+            {:ok, %{"data" => v}} ->
+              IO.puts("vault  +  #{name}")
+              v
+
+            {:error, err} ->
+              warn("vault  !  #{name} (create failed): #{inspect(err)}")
+              nil
+          end
+      end
+
+    case vault do
+      %{"id" => vault_id} -> upsert_vault_secrets(vault_id, name, secrets)
+      _ -> :error
+    end
+  end
+
+  defp upsert_vault_secrets(_, _, secrets) when secrets in [nil, %{}], do: :ok
+
+  defp upsert_vault_secrets(vault_id, name, %{} = secrets) do
+    Enum.each(secrets, fn {k, v} ->
+      case Api.post("/vaults/#{vault_id}/secrets", %{key: to_string(k), value: to_string(v)}) do
+        {:ok, _} -> IO.puts("  secret  ~  #{name}/#{k}")
+        {:error, err} -> warn("  secret  !  #{name}/#{k}: #{inspect(err)}")
+      end
+    end)
+  end
+
   defp apply_agent(doc, env_id_by_name) do
     name = required(doc, "metadata.name")
     spec = doc["spec"] || %{}
@@ -131,7 +186,10 @@ defmodule AodCli.Apply do
               |> Map.put("environment_id", env_id)
 
             :error ->
-              warn("agent  ?  #{name}: environment '#{env_name}' not in this manifest, skipping reference")
+              warn(
+                "agent  ?  #{name}: environment '#{env_name}' not in this manifest, skipping reference"
+              )
+
               Map.delete(spec, "environment")
           end
       end

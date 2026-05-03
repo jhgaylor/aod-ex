@@ -36,16 +36,26 @@ curl -X POST $BASE/api/environments/<env_id>/secrets -H "Authorization: Bearer $
   -H 'content-type: application/json' \
   -d '{"key":"GITHUB_TOKEN","value":"ghp_..."}'
 
+# Define a vault — a free-floating bag of env-var overrides applied at conversation creation.
+# Layered on top of the environment's secrets; vault values win on key collision.
+curl -X POST $BASE/api/vaults -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name":"alice","description":"Alice'"'"'s personal credentials"}'
+
+curl -X POST $BASE/api/vaults/<vault_id>/secrets -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"key":"GITHUB_TOKEN","value":"ghp_alice_..."}'
+
 # Define an agent
 curl -X POST $BASE/api/agents -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"name":"hello","model":"anthropic/claude-sonnet-4-6","runtime":"claude","environment_id":"<env_id>"}'
 
 # Start a conversation: provisions a sprite, runs setup_script, mounts skills,
-# fires turn 1, returns immediately.
+# fires turn 1, returns immediately. Optional vault_id overrides env secrets.
 curl -X POST $BASE/api/conversations -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"agent_id":"<agent_id>","prompt":"Hello there."}'
+  -d '{"agent_id":"<agent_id>","vault_id":"<vault_id>","prompt":"Hello there."}'
 
 # Stream output (SSE); reconnect with Last-Event-ID to resume.
 curl -N $BASE/api/conversations/<conv_id>/stream -H "Authorization: Bearer $TOKEN"
@@ -73,9 +83,13 @@ export AOD_BASE_URL=http://localhost:4000
 export AOD_TOKEN=...
 ./aod agent list
 ./aod env list
+./aod vault list
+./aod vault create alice --description "Alice's creds"
+./aod vault set-secret alice GITHUB_TOKEN ghp_alice_...
 ./aod conv list
-./aod run hello -p "Say hi."           # start + stream + wait
-./aod conv prompt <conv-id> -p "..."   # follow-up turn
+./aod run hello -p "Say hi."                       # start + stream + wait
+./aod run hello -p "Say hi." --vault alice         # ...with vault overrides
+./aod conv prompt <conv-id> -p "..."               # follow-up turn
 ./aod conv interrupt <conv-id>         # stop the running turn, keep sandbox
 ./aod conv terminate <conv-id>         # destroy the sprite
 ./aod conv delete <conv-id>            # destroy sprite + delete the row
@@ -85,10 +99,11 @@ export AOD_TOKEN=...
 
 Three resources, with a clear split between "sandbox lifespan" and "chat history":
 
-- **Environment** — packages, env vars, setup script, networking config; owns first-class encrypted **Secrets**.
+- **Environment** — packages, env vars, setup script, networking config; owns first-class encrypted **Secrets** (the env's baseline).
+- **Vault** — a free-floating bag of encrypted env-var overrides. Selected on a per-conversation basis (yours, a teammate's, a virtual identity's). Layered over the environment's secrets at sprite spawn; vault values win on key collision. Use it to override `GITHUB_TOKEN` per conversation, etc.
 - **Agent** — name, system prompt, model, runtime, optional environment, optional MCP servers, optional skills.
 - **Sandbox** — one running sprite. Status lifecycle: `pending → starting → ready → terminated|failed`.
-- **Conversation** — one chat with one agent inside one sandbox. Has many **Turns**; each turn is one `prompt → exit_code` cycle. The `runtime_session_id` is captured from claude and persisted so resumption survives process restarts.
+- **Conversation** — one chat with one agent inside one sandbox, optionally using one vault. Has many **Turns**; each turn is one `prompt → exit_code` cycle. The `runtime_session_id` is captured from claude and persisted so resumption survives process restarts.
 - **LogEvent** — the firehose. Two kinds: `output` (stdout/stderr lines from the runtime CLI) and `stage` (lifecycle markers — provision, setup, turn, terminate). Integer PK lets clients use `Last-Event-ID` for SSE replay.
 
 ## Local dev
@@ -173,6 +188,7 @@ lib/agent_on_demand/
   agents/              Agent schema + context
   conversations/       Sandbox, Conversation, Turn, LogEvent + ConversationServer GenServer
   environments/        Environment, Secret + context (with AES-GCM at rest)
+  vaults/              Vault, VaultSecret + context (per-conversation env-var overrides)
   runtimes/            Runtimes behaviour + Claude impl
   application.ex       supervision tree
   crypto.ex            AES-256-GCM

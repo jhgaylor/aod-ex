@@ -1,17 +1,23 @@
 defmodule AgentOnDemandWeb.ConversationsLive.New do
   use AgentOnDemandWeb, :live_view
 
-  alias AgentOnDemand.{Agents, Conversations}
+  alias AgentOnDemand.{Agents, Conversations, Vaults}
 
   @impl true
   def mount(_params, _session, socket) do
     agents = Agents.list_agents()
+    vaults = Vaults.list_vaults()
 
     {:ok,
      socket
      |> assign(:page_title, "New conversation")
      |> assign(:agents, agents)
-     |> assign(:form, %{"agent_id" => first_agent_id(agents), "prompt" => ""})}
+     |> assign(:vaults, vaults)
+     |> assign(:form, %{
+       "agent_id" => first_agent_id(agents),
+       "vault_id" => "",
+       "prompt" => ""
+     })}
   end
 
   @impl true
@@ -20,6 +26,8 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
   end
 
   def handle_event("submit", %{"conv" => params}, socket) do
+    params = if params["vault_id"] == "", do: Map.delete(params, "vault_id"), else: params
+
     case Conversations.start_conversation(params) do
       {:ok, conv} ->
         {:noreply,
@@ -29,6 +37,9 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
 
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Agent not found")}
+
+      {:error, :vault_not_found} ->
+        {:noreply, put_flash(socket, :error, "Vault not found")}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
@@ -57,6 +68,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
               {a.name} ({a.runtime} · {a.model})
             </option>
           </select>
+        </div>
+        <div :if={@vaults != []} class="space-y-1">
+          <label class="block text-sm font-medium text-zinc-700">Vault <span class="text-zinc-400 font-normal">(optional)</span></label>
+          <select name="conv[vault_id]" class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm">
+            <option value="" selected={@form["vault_id"] in [nil, ""]}>— none —</option>
+            <option :for={v <- @vaults} value={v.id} selected={@form["vault_id"] == v.id}>
+              {v.name}
+            </option>
+          </select>
+          <p class="text-xs text-zinc-500">
+            Layered on top of the environment's secrets at sprite spawn. Vault values win on key collision.
+          </p>
         </div>
         <.input id="prompt" name="conv[prompt]" type="textarea" label="First prompt"
           value={@form["prompt"]} rows="6" placeholder="What should the agent do?" autofocus required/>

@@ -44,6 +44,29 @@ defmodule AgentOnDemand.Factory do
     secret
   end
 
+  # ── vaults ────────────────────────────────────────────────────────────────
+
+  def vault_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{"name" => "vault-#{uniq()}", "description" => ""},
+      to_string_map(overrides)
+    )
+  end
+
+  def insert_vault(overrides \\ %{}) do
+    {:ok, vault} = AgentOnDemand.Vaults.create_vault(vault_attrs(overrides))
+    vault
+  end
+
+  def insert_vault_secret(vault, overrides \\ %{}) do
+    attrs =
+      %{"key" => "TEST_KEY_#{uniq()}", "value" => "test-value-#{uniq()}"}
+      |> Map.merge(to_string_map(overrides))
+
+    {:ok, secret} = AgentOnDemand.Vaults.upsert_secret(vault, attrs)
+    secret
+  end
+
   # ── agents ────────────────────────────────────────────────────────────────
 
   def agent_attrs(overrides \\ %{}) do

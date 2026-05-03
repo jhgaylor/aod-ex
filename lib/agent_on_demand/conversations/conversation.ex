@@ -4,6 +4,7 @@ defmodule AgentOnDemand.Conversations.Conversation do
 
   alias AgentOnDemand.Agents.Agent
   alias AgentOnDemand.Conversations.{Sandbox, Turn}
+  alias AgentOnDemand.Vaults.Vault
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -16,6 +17,7 @@ defmodule AgentOnDemand.Conversations.Conversation do
     field :runtime_session_id, :string
     belongs_to :sandbox, Sandbox
     belongs_to :agent, Agent
+    belongs_to :vault, Vault
     has_many :turns, Turn
     timestamps(type: :utc_datetime)
   end
@@ -24,10 +26,11 @@ defmodule AgentOnDemand.Conversations.Conversation do
 
   def changeset(conv, attrs) do
     conv
-    |> cast(attrs, [:runtime, :status, :runtime_session_id, :sandbox_id, :agent_id])
+    |> cast(attrs, [:runtime, :status, :runtime_session_id, :sandbox_id, :agent_id, :vault_id])
     |> validate_required([:runtime, :status, :sandbox_id])
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:sandbox_id)
     |> foreign_key_constraint(:agent_id)
+    |> foreign_key_constraint(:vault_id)
   end
 end

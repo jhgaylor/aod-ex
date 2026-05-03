@@ -59,6 +59,9 @@ defmodule AgentOnDemandWeb.Plugs.Audit do
       params["secret_id"] || params["environment_id"] ->
         {"secret", params["secret_id"]}
 
+      params["vault_id"] ->
+        {"vault_secret", params["id"]}
+
       params["conversation_id"] ->
         {"conversation", params["conversation_id"]}
 

@@ -5,17 +5,22 @@ defmodule AodCli do
   Reads `AOD_BASE_URL` (default http://localhost:4000) and `AOD_TOKEN`
   from the environment.
 
-      aod run <agent> -p "..."          start a conversation, stream until done
-      aod conv list [--status RUNNING]  list conversations
-      aod conv show <id>                show a single conversation + turns
-      aod conv stream <id>              tail an existing conversation's SSE
-      aod conv prompt <id> -p "..."     send a follow-up prompt
-      aod conv interrupt <id>           stop the running turn (sandbox stays alive)
-      aod conv terminate <id>           destroy the sprite (keeps the row)
-      aod conv delete <id>              destroy sprite + delete the row + turns
+      aod run <agent> -p "..." [--vault NAME]   start a conversation, stream until done
+      aod conv list [--status RUNNING]          list conversations
+      aod conv show <id>                        show a single conversation + turns
+      aod conv stream <id>                      tail an existing conversation's SSE
+      aod conv prompt <id> -p "..."             send a follow-up prompt
+      aod conv interrupt <id>                   stop the running turn (sandbox stays alive)
+      aod conv terminate <id>                   destroy the sprite (keeps the row)
+      aod conv delete <id>                      destroy sprite + delete the row + turns
       aod agent list
       aod env list
-      aod apply -f <file>               reconcile environments + agents from a YAML manifest
+      aod vault list
+      aod vault create <name> [--description "..."]
+      aod vault set-secret <name|id> KEY VALUE
+      aod vault delete-secret <name|id> KEY
+      aod vault delete <name|id>
+      aod apply -f <file>                       reconcile environments, vaults + agents from a YAML manifest
 
   Pass `--json` to any list/show command to get raw JSON.
   """
@@ -29,6 +34,7 @@ defmodule AodCli do
       ["conv" | rest] -> AodCli.Conv.dispatch(rest)
       ["agent" | rest] -> AodCli.Agent.dispatch(rest)
       ["env" | rest] -> AodCli.Env.dispatch(rest)
+      ["vault" | rest] -> AodCli.Vault.dispatch(rest)
       ["apply" | rest] -> AodCli.Apply.dispatch(rest)
       ["help"] -> usage()
       ["--help"] -> usage()

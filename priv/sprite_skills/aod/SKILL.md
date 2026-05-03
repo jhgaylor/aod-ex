@@ -127,6 +127,27 @@ RT=$(curl -s "$AOD_BASE_URL/api/conversations/$CONV" \
 | gemini   | `select(.type=="message" and .role=="assistant")`                      | `.content` *(use the last one)*  |
 | opencode | `select(.type=="text")`                                                | `.part.text` *(concatenate all)* |
 
+## Vaults — running as a different identity
+
+If you need a spawned conversation to run with credentials other than what the
+agent's environment provides (e.g. contribute to GitHub as a specific user), pass
+an optional `vault_id` when creating it. List vaults to find the one you want:
+
+```bash
+curl -s "$AOD_BASE_URL/api/vaults" -H "Authorization: Bearer $AOD_TOKEN" \
+  | jq -r '.data[] | "\(.name)\t\(.id)"'
+
+# Spawn with a specific vault layered on top of the env's secrets:
+curl -s -X POST "$AOD_BASE_URL/api/conversations" \
+  -H "Authorization: Bearer $AOD_TOKEN" -H "Content-Type: application/json" \
+  -d "$(jq -n --arg a "$AGENT_ID" --arg v "$VAULT_ID" --arg p "$PROMPT" \
+        '{agent_id:$a, vault_id:$v, prompt:$p}')"
+```
+
+Vault values override the environment's baseline on key collision. Most fan-outs
+don't need this — only reach for it when you specifically want different
+credentials per spawned conversation.
+
 ## Multi-turn
 
 Send a follow-up prompt to an existing conversation:
