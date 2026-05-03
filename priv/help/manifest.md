@@ -65,8 +65,12 @@ spec:
 ## Apply
 
 ```bash
-./aod apply -f aod.yml
+./aod apply -f aod.yml          # single file
+./aod apply -f ./aod-specs/     # directory: walks **/*.{yml,yaml}
+./aod apply ./aod-specs/        # positional form, equivalent
 ```
+
+Directory mode walks recursively. Any YAML document carrying both `apiVersion` and `kind` is treated as a resource; anything else (a doc without front-matter, an unrelated `.yaml` config) is silently ignored. So `aod-specs/agents/*.yml`, `aod-specs/environments/*.yml`, plus an unrelated `.github/workflows/ci.yml` in the same tree all coexist cleanly. Files are processed in alphabetical order; if you want strict ordering for any reason, prefix names like `10-envs.yml` / `20-agents.yml` (though reconciliation order is fixed internally — envs first, then vaults, then agents — regardless).
 
 Output uses `+` for create, `~` for update, one line per resource:
 

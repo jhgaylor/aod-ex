@@ -10,6 +10,15 @@ defmodule AodCli.Apply do
   file doesn't matter — environments and vaults are always reconciled
   before agents so `spec.environment: <name>` references resolve.
 
+  ## Input
+
+  `aod apply -f <path>` (or `aod apply <path>` positional) accepts
+  either a single YAML file or a directory. Directory mode walks
+  recursively for `*.yml` / `*.yaml`, treats every doc that carries
+  both `apiVersion` and `kind` as one resource, and ignores everything
+  else — so `aod-specs/agents/*.yml`, `aod-specs/environments/*.yml`,
+  unrelated CI config sitting in the tree, etc. all coexist cleanly.
+
   Resource shape:
 
       ---
@@ -85,10 +94,7 @@ defmodule AodCli.Apply do
 
     apply_vars = build_apply_vars(Keyword.get_values(opts, :var))
 
-    docs =
-      path
-      |> File.read!()
-      |> parse_docs!()
+    docs = read_docs!(path)
 
     {envs, vaults, agents, unknown} = group(docs)
 
@@ -258,6 +264,53 @@ defmodule AodCli.Apply do
   end
 
   # ── parsing ────────────────────────────────────────────────────────
+
+  # Accepts either a single YAML file or a directory. Directory mode
+  # walks recursively for `*.yml` / `*.yaml`, parses each, and
+  # concatenates the docs in alphabetical filename order. Docs that
+  # don't carry both `apiVersion` and `kind` are silently skipped — a
+  # file in your specs tree might be unrelated yaml (a CI config, a
+  # README front matter, ...) and we shouldn't trip over it. Docs
+  # *with* both fields go through the normal pipeline; an unknown
+  # `kind` value still errors as a typo guard.
+  @doc false
+  def read_docs!(path) do
+    cond do
+      File.dir?(path) ->
+        files = list_yaml_files(path)
+
+        if files == [] do
+          AodCli.die("no .yml/.yaml files found under #{path}")
+        end
+
+        files
+        |> Enum.flat_map(fn file -> file |> File.read!() |> parse_docs!() end)
+        |> Enum.filter(&aod_resource?/1)
+
+      File.regular?(path) ->
+        path
+        |> File.read!()
+        |> parse_docs!()
+        |> Enum.filter(&aod_resource?/1)
+
+      true ->
+        AodCli.die("not a file or directory: #{path}")
+    end
+  end
+
+  defp list_yaml_files(dir) do
+    dir
+    |> Path.join("**/*.{yml,yaml}")
+    |> Path.wildcard()
+    |> Enum.sort()
+  end
+
+  @doc false
+  def aod_resource?(doc) when is_map(doc) do
+    Map.has_key?(doc, "apiVersion") and Map.has_key?(doc, "kind")
+  end
+
+  def aod_resource?(_), do: false
 
   defp parse_docs!(yaml) do
     case YamlElixir.read_all_from_string(yaml) do
