@@ -376,9 +376,11 @@ defmodule AodCli.Up do
 
     admin_token = env_get(env, "ADMIN_TOKEN") || "<unchanged>"
 
-    # Refresh SPRITES_TOKEN from the operator's current value. Older
-    # deploys didn't set this at all; the upgrade is the recovery path.
+    # Refresh SPRITES_TOKEN + AI provider tokens from the operator's
+    # current shell. Older deploys didn't set these at all; the
+    # upgrade is the recovery path.
     env = put_env(env, "SPRITES_TOKEN", sprites_token)
+    env = refresh_passthrough(env)
 
     push_binary(sprite, binary_source)
 
@@ -488,10 +490,24 @@ defmodule AodCli.Up do
     """
   end
 
+  # Env vars that flow through from the operator's shell to the
+  # deployed sprite. Anything claude / codex / gemini / opencode might
+  # want for auth, plus tracing config if the operator has it set.
+  # If a var isn't set on the operator's side it's just omitted (the
+  # AoD server tolerates missing values for optional providers).
+  @passthrough_env_vars [
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_HEADERS"
+  ]
+
   defp build_env(secrets, public_url, sprites_token) do
     %URI{host: host} = URI.parse(public_url)
 
-    [
+    base = [
       {"PHX_SERVER", "1"},
       {"PHX_HOST", host},
       {"PORT", Integer.to_string(@port)},
@@ -503,11 +519,43 @@ defmodule AodCli.Up do
       {"DATABASE_PATH", @remote_db},
       {"AOD_PUBLIC_URL", public_url}
     ]
+
+    base ++ passthrough_env()
+  end
+
+  defp passthrough_env do
+    for key <- @passthrough_env_vars,
+        value = System.get_env(key) || load_dot_env(key),
+        is_binary(value) and value != "",
+        do: {key, value}
   end
 
   # Set or replace a single env var in the keyword-list-shaped env.
   defp put_env(env, key, value) do
     [{key, value} | List.keydelete(env, key, 0)]
+  end
+
+  # Refresh all passthrough env vars from the operator's current
+  # shell. Any keys the operator doesn't have set are removed from
+  # the existing env (operators dropping a provider should clear it
+  # cleanly; otherwise an old token lingers indefinitely).
+  defp refresh_passthrough(env) do
+    operator_set =
+      for key <- @passthrough_env_vars,
+          value = System.get_env(key) || load_dot_env(key),
+          is_binary(value) and value != "",
+          into: %{},
+          do: {key, value}
+
+    env =
+      Enum.reduce(@passthrough_env_vars, env, fn key, acc ->
+        case Map.fetch(operator_set, key) do
+          {:ok, v} -> put_env(acc, key, v)
+          :error -> List.keydelete(acc, key, 0)
+        end
+      end)
+
+    env
   end
 
   defp extract_public_url(info, port) do
