@@ -77,17 +77,17 @@ defmodule AodCli.Up do
     case opts[:name] do
       nil ->
         binary_path = resolve_binary_path(opts[:release])
-        deploy(client, "aod-host-#{:os.system_time(:second)}", binary_path)
+        deploy(client, "aod-host-#{:os.system_time(:second)}", binary_path, token)
 
       name ->
         binary_path = resolve_binary_path(opts[:release])
 
         case Sprites.get_sprite(client, name) do
           {:ok, _info} ->
-            upgrade(client, name, binary_path)
+            upgrade(client, name, binary_path, token)
 
           {:error, {:not_found, _}} ->
-            deploy(client, name, binary_path)
+            deploy(client, name, binary_path, token)
 
           {:error, reason} ->
             AodCli.die("could not check sprite '#{name}': #{inspect(reason)}")
@@ -235,7 +235,7 @@ defmodule AodCli.Up do
 
   # ── deploy ───────────────────────────────────────────────────────
 
-  defp deploy(client, name, binary_source) do
+  defp deploy(client, name, binary_source, sprites_token) do
     info("provisioning sprite '#{name}'...")
     {:ok, sprite} = Sprites.create(client, name)
 
@@ -258,7 +258,7 @@ defmodule AodCli.Up do
       secret_key_base: random_hex(64)
     }
 
-    env = build_env(secrets, public_url)
+    env = build_env(secrets, public_url, sprites_token)
 
     info("writing #{@remote_start_sh} wrapper...")
     fs = Sprites.filesystem(sprite, "/")
@@ -363,7 +363,7 @@ defmodule AodCli.Up do
 
   # ── upgrade ──────────────────────────────────────────────────────
 
-  defp upgrade(client, name, binary_source) do
+  defp upgrade(client, name, binary_source, sprites_token) do
     info("upgrading sprite '#{name}' in place...")
     sprite = Sprites.sprite(client, name)
 
@@ -375,6 +375,10 @@ defmodule AodCli.Up do
         AodCli.die("could not recover AOD_PUBLIC_URL from existing #{@remote_start_sh}")
 
     admin_token = env_get(env, "ADMIN_TOKEN") || "<unchanged>"
+
+    # Refresh SPRITES_TOKEN from the operator's current value. Older
+    # deploys didn't set this at all; the upgrade is the recovery path.
+    env = put_env(env, "SPRITES_TOKEN", sprites_token)
 
     push_binary(sprite, binary_source)
 
@@ -484,7 +488,7 @@ defmodule AodCli.Up do
     """
   end
 
-  defp build_env(secrets, public_url) do
+  defp build_env(secrets, public_url, sprites_token) do
     %URI{host: host} = URI.parse(public_url)
 
     [
@@ -495,9 +499,15 @@ defmodule AodCli.Up do
       {"SECRET_KEY_BASE", secrets.secret_key_base},
       {"ADMIN_TOKEN", secrets.admin_token},
       {"SECRETS_KEY", secrets.secrets_key},
+      {"SPRITES_TOKEN", sprites_token},
       {"DATABASE_PATH", @remote_db},
       {"AOD_PUBLIC_URL", public_url}
     ]
+  end
+
+  # Set or replace a single env var in the keyword-list-shaped env.
+  defp put_env(env, key, value) do
+    [{key, value} | List.keydelete(env, key, 0)]
   end
 
   defp extract_public_url(info, port) do
