@@ -74,36 +74,27 @@ Destroys the entire Sprite.
 
 ---
 
-## Burrito debt — pay this down soon
+## Burrito debt — one remaining workaround
 
-The cross-build path needs **two custom Burrito steps** in `lib/aod/burrito/` to work around a version-skew problem. They're load-bearing today; they should be deletable in a near-future cleanup.
+The cross-build path needs **one custom Burrito step** in `lib/aod/burrito/`.
 
 ### The root cause
 
-Burrito ships precompiled ERTS for select OTP versions via [beam-machine](https://beam-machine-universal.b-cdn.net). Our local Erlang/OTP is **28.5**, but beam-machine's latest is **28.4**. We pin the build to 28.4 ERTS via `custom_erts: <url>` in `mix.exs`, which then triggers two issues:
+Burrito ships precompiled ERTS for select OTP versions via [beam-machine](https://beam-machine-universal.b-cdn.net). We pin to 28.4 ERTS via `custom_erts: <url>` in `mix.exs`, which triggers one issue:
 
-1. **`Burrito.Steps.Fetch.FetchMusl` skips us.** It pattern-matches on `erts_source: {:precompiled, _}`. With `custom_erts: <url>`, the source becomes `{:url, _}` — FetchMusl never runs, so `__BURRITO_MUSL_RUNTIME_PATH` stays empty and the wrapper compiles without the dynamic linker. beam.smp then fails at runtime with `error: FileNotFound`.
+**`Burrito.Steps.Fetch.FetchMusl` skips us.** It pattern-matches on `erts_source: {:precompiled, _}`. With `custom_erts: <url>`, the source becomes `{:url, _}` — FetchMusl never runs, so `__BURRITO_MUSL_RUNTIME_PATH` stays empty and the wrapper compiles without the dynamic linker. beam.smp then fails at runtime with `error: FileNotFound`.
 
-2. **Crypto NIF version mismatch.** Local OTP 28.5 has `crypto-5.8.3`. beam-machine OTP 28.4 has `crypto-5.8.2`. `mix release` assembles using local (`lib/crypto-5.8.3/`); Burrito's `CopyERTS` deposits the linux musl `.so` in a parallel `lib/crypto-5.8.2/`. The runtime loads from `crypto-5.8.3/` — which still holds the macOS arm64 NIF — and dies with `Exec format error`.
-
-### The workarounds
+### The workaround
 
 - **`lib/aod/burrito/inject_musl_path.ex`** — replicates `FetchMusl`'s download + env-var injection, unconditionally. Wired as a `fetch:pre` step.
-- **`lib/aod/burrito/cross_version_nif_copy.ex`** — after `CopyERTS`, copies each linux `.so` into every matching `<app>-*` dest dir, regardless of version. Wired as a `patch:post` step.
 
-Both have detailed `@moduledoc`s explaining the trigger conditions.
+### How to retire it
 
-### How to retire each hack
+`InjectMuslPath` can be removed when Burrito upstream handles `:url` source the same as `:precompiled` for musl runtime install.
 
-In rough order of effort:
+### Build prerequisites
 
-| Hack | Retired when… |
-|------|---------------|
-| `CrossVersionNifCopy` | Local OTP version matches the target ERTS (e.g. install OTP 28.4 alongside 28.5 via asdf and use 28.4 for releases). All app/version dirs then line up and Burrito's stock `CopyERTS` is sufficient. |
-| `InjectMuslPath` | Burrito upstream handles `:url` source the same as `:precompiled` for musl runtime install. Worth filing an issue. |
-| Both | Local OTP becomes 28.4 (or beam-machine adds 28.5 prebuilds and we drop `custom_erts:`). |
-
-If we go the "asdf for builds" route, add a `.tool-versions` (or `.envrc`) at the repo root pinning `erlang 28.4`, and document it as a build prereq.
+The repo includes a `.tool-versions` at the root pinning `erlang 28.4` and `elixir 1.19.5-otp-28`. Use [asdf](https://asdf-vm.com) (or [mise](https://mise.jdx.dev), which also reads `.tool-versions`) to install the correct versions before building releases locally. This keeps local OTP aligned with the `custom_erts` target and prevents NIF version mismatches.
 
 ### One more thing
 
