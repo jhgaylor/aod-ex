@@ -51,6 +51,20 @@ curl -X POST $BASE/api/agents -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"name":"hello","model":"anthropic/claude-sonnet-4-6","runtime":"claude","environment_id":"<env_id>"}'
 
+# Define an agent with skills. Each entry is either inline (full SKILL.md
+# in `content`) or github (resolved via the skills.sh CLI on the sprite).
+curl -X POST $BASE/api/agents -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "name":"researcher",
+    "model":"anthropic/claude-sonnet-4-6",
+    "runtime":"claude",
+    "skills": [
+      {"source":"anthropics/skills","name":"frontend-design"},
+      {"name":"house-style","content":"---\nname: house-style\n---\nUse our voice."}
+    ]
+  }'
+
 # Start a conversation: provisions a sprite, runs setup_script, mounts skills,
 # fires turn 1, returns immediately. Optional vault_id overrides env secrets.
 curl -X POST $BASE/api/conversations -H "Authorization: Bearer $TOKEN" \
@@ -101,7 +115,7 @@ Three resources, with a clear split between "sandbox lifespan" and "chat history
 
 - **Environment** — packages, env vars, setup script, networking config; owns first-class encrypted **Secrets** (the env's baseline).
 - **Vault** — a free-floating bag of encrypted env-var overrides. Selected on a per-conversation basis (yours, a teammate's, a virtual identity's). Layered over the environment's secrets at sprite spawn; vault values win on key collision. Use it to override `GITHUB_TOKEN` per conversation, etc.
-- **Agent** — name, system prompt, model, runtime, optional environment, optional MCP servers, optional skills.
+- **Agent** — name, system prompt, model, runtime, optional environment, optional MCP servers, optional skills (each entry inline `{name, content}` or github `{source, name?}` — see [Skills](#skills) below).
 - **Sandbox** — one running sprite. Status lifecycle: `pending → starting → ready → terminated|failed`.
 - **Conversation** — one chat with one agent inside one sandbox, optionally using one vault. Has many **Turns**; each turn is one `prompt → exit_code` cycle. The `runtime_session_id` is captured from claude and persisted so resumption survives process restarts.
 - **LogEvent** — the firehose. Two kinds: `output` (stdout/stderr lines from the runtime CLI) and `stage` (lifecycle markers — provision, setup, turn, terminate). Integer PK lets clients use `Last-Event-ID` for SSE replay.
@@ -125,6 +139,36 @@ Reads a local `.env` automatically (see `.env.example`):
 | `GEMINI_API_KEY` | for future `gemini` runtime | |
 | `SECRETS_KEY` | prod only | 32 bytes, base64 url-safe (no padding). Dev derives from a fixed seed. |
 | `AOD_PUBLIC_URL` | optional | If set, exposed inside sprites via the bundled `aod` skill so spawned agents can fan out to more conversations. Must be reachable from inside the sprite — see [Tunneling](#tunneling-for-the-aod-skill) below. |
+
+## Skills
+
+An agent's `skills` is a list of two shapes:
+
+- **inline** — `{"name": "...", "content": "<full SKILL.md body>"}`. Written to `<runtime-skills-root>/<name>/SKILL.md` on the sprite.
+- **github** — `{"source": "owner/repo", "name": "<optional skill within the repo>"}`. Installed on the sprite via the [skills.sh](https://skills.sh) CLI (`npx -y skills@latest add <source> --global --agent <runtime-agent> --yes [--skill <name>]`). Omit `name` to install every skill in the repo.
+
+The bundled `aod` skill is always prepended automatically — it's how spawned agents call back to your AoD instance.
+
+YAML manifest example for `aod apply`:
+
+```yaml
+apiVersion: aod/v1
+kind: Agent
+metadata:
+  name: researcher
+spec:
+  model: anthropic/claude-sonnet-4-6
+  runtime: claude
+  skills:
+    - source: anthropics/skills
+      name: frontend-design
+    - name: house-style
+      content: |
+        ---
+        name: house-style
+        ---
+        Use our voice.
+```
 
 ## Tunneling (for the `aod` skill)
 
@@ -207,7 +251,7 @@ openssl rand 32 | base64 | tr '+/' '-_' | tr -d '='
 
 ## Architecture (one paragraph)
 
-A `ConversationServer` GenServer owns each running conversation. On start it provisions a sprite, mounts bundled skills (`priv/sprite_skills/aod/`), writes any runtime-specific config (e.g. claude's `~/.claude.json` for MCP), runs the env's `setup_script`, then spawns the runtime CLI with stdin'd prompt. stdout/stderr from the sprite are persisted to `log_events` (integer PK for SSE replay) and broadcast on `Phoenix.PubSub` topic `"conv:<id>"`. The SSE endpoint subscribes, replays missed events from `Last-Event-ID`, then live-tails. Multi-turn `--resume` uses claude's own `session_id` extracted from its stream-json `init` message.
+A `ConversationServer` GenServer owns each running conversation. On start it provisions a sprite, mounts the agent's skills (always-prepended `aod` callback skill + any inline/github entries — github entries shell out to the [skills.sh](https://skills.sh) CLI), writes any runtime-specific config (e.g. claude's `~/.claude.json` for MCP), runs the env's `setup_script`, then spawns the runtime CLI with stdin'd prompt. stdout/stderr from the sprite are persisted to `log_events` (integer PK for SSE replay) and broadcast on `Phoenix.PubSub` topic `"conv:<id>"`. The SSE endpoint subscribes, replays missed events from `Last-Event-ID`, then live-tails. Multi-turn `--resume` uses claude's own `session_id` extracted from its stream-json `init` message.
 
 ## Layout
 
@@ -221,7 +265,7 @@ lib/agent_on_demand/
   runtimes/            Runtimes behaviour + Claude impl
   application.ex       supervision tree
   crypto.ex            AES-256-GCM
-  sprite_skills.ex     mount bundled skills into a sprite
+  sprite_skills.ex     mount agent skills into a sprite (inline + skills.sh)
 lib/agent_on_demand_web/
   controllers/         REST + SSE
   plugs/admin_auth.ex  bearer-token auth

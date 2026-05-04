@@ -24,6 +24,14 @@ defmodule AgentOnDemand.Runtimes.Gemini do
   # to anchor on instead of crawling /home.
   @workdir "/tmp/gemini-workspace"
 
+  # gemini runs with HOME=/tmp on the sprite, so its skill discovery
+  # path is /tmp/.gemini/skills (NOT /home/sprite/.gemini/skills).
+  @impl true
+  def skills_root, do: "/tmp/.gemini/skills"
+
+  @impl true
+  def skills_sh_agent, do: "gemini-cli"
+
   @impl true
   def build_command(agent, _prompt, mode, _runtime_session_id, _opts) do
     base = [

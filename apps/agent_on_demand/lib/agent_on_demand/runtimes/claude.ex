@@ -14,6 +14,12 @@ defmodule AgentOnDemand.Runtimes.Claude do
   @behaviour AgentOnDemand.Runtimes
 
   @impl true
+  def skills_root, do: "/home/sprite/.claude/skills"
+
+  @impl true
+  def skills_sh_agent, do: "claude-code"
+
+  @impl true
   def build_command(_agent, _prompt, mode, runtime_session_id, _opts) do
     if mode == :continue and is_nil(runtime_session_id) do
       raise ArgumentError, "mode=:continue requires runtime_session_id"

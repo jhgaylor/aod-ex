@@ -177,7 +177,25 @@ defmodule AgentOnDemandWeb.Schemas do
         },
         runtime: %Schema{type: :string, enum: ~w(claude codex gemini opencode)},
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
-        skills: %Schema{type: :array, items: %Schema{type: :string}},
+        skills: %Schema{
+          type: :array,
+          description:
+            "Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) " <>
+              "or github (`{source, name?}` — installed on the sprite via the skills.sh CLI). " <>
+              "Exactly one of `content` or `source` must be set on each entry.",
+          items: %Schema{
+            type: :object,
+            properties: %{
+              name: %Schema{type: :string, description: "Skill name (required for inline entries)."},
+              content: %Schema{type: :string, description: "Full SKILL.md body for inline entries."},
+              source: %Schema{
+                type: :string,
+                description: "GitHub `owner/repo` for skills.sh-sourced entries.",
+                pattern: "^[A-Za-z0-9._/-]+$"
+              }
+            }
+          }
+        },
         mcp_servers: %Schema{type: :object, additionalProperties: true},
         metadata: %Schema{type: :object, additionalProperties: true},
         inserted_at: %Schema{type: :string, format: :"date-time"},
@@ -225,7 +243,25 @@ defmodule AgentOnDemandWeb.Schemas do
         },
         runtime: %Schema{type: :string, enum: ~w(claude codex gemini opencode)},
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
-        skills: %Schema{type: :array, items: %Schema{type: :string}},
+        skills: %Schema{
+          type: :array,
+          description:
+            "Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) " <>
+              "or github (`{source, name?}` — installed on the sprite via the skills.sh CLI). " <>
+              "Exactly one of `content` or `source` must be set on each entry.",
+          items: %Schema{
+            type: :object,
+            properties: %{
+              name: %Schema{type: :string, description: "Skill name (required for inline entries)."},
+              content: %Schema{type: :string, description: "Full SKILL.md body for inline entries."},
+              source: %Schema{
+                type: :string,
+                description: "GitHub `owner/repo` for skills.sh-sourced entries.",
+                pattern: "^[A-Za-z0-9._/-]+$"
+              }
+            }
+          }
+        },
         mcp_servers: %Schema{type: :object, additionalProperties: true},
         metadata: %Schema{type: :object, additionalProperties: true}
       },
@@ -250,7 +286,25 @@ defmodule AgentOnDemandWeb.Schemas do
         model: %Schema{type: :string, pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"},
         runtime: %Schema{type: :string, enum: ~w(claude codex gemini opencode)},
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
-        skills: %Schema{type: :array, items: %Schema{type: :string}},
+        skills: %Schema{
+          type: :array,
+          description:
+            "Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) " <>
+              "or github (`{source, name?}` — installed on the sprite via the skills.sh CLI). " <>
+              "Exactly one of `content` or `source` must be set on each entry.",
+          items: %Schema{
+            type: :object,
+            properties: %{
+              name: %Schema{type: :string, description: "Skill name (required for inline entries)."},
+              content: %Schema{type: :string, description: "Full SKILL.md body for inline entries."},
+              source: %Schema{
+                type: :string,
+                description: "GitHub `owner/repo` for skills.sh-sourced entries.",
+                pattern: "^[A-Za-z0-9._/-]+$"
+              }
+            }
+          }
+        },
         mcp_servers: %Schema{type: :object, additionalProperties: true},
         metadata: %Schema{type: :object, additionalProperties: true}
       }

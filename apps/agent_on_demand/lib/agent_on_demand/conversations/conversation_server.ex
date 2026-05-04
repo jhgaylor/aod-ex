@@ -218,9 +218,9 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
     case create_sprite(sandbox.sprite_name) do
       {:ok, sprite} ->
-        skill_names = (agent && agent.skills) || []
+        skills = (agent && agent.skills) || []
         runtime = (agent && agent.runtime) || "claude"
-        AgentOnDemand.SpriteSkills.mount(sprite, runtime, skill_names)
+        AgentOnDemand.SpriteSkills.mount(sprite, runtime, skills)
 
         sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
 

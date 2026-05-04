@@ -29,6 +29,12 @@ defmodule AgentOnDemand.Runtimes.Codex do
   @behaviour AgentOnDemand.Runtimes
 
   @impl true
+  def skills_root, do: "/home/sprite/.codex/skills"
+
+  @impl true
+  def skills_sh_agent, do: "codex"
+
+  @impl true
   def build_command(_agent, prompt, mode, _runtime_session_id, _opts) do
     base =
       if mode == :continue do

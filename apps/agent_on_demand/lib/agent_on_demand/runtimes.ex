@@ -49,6 +49,21 @@ defmodule AgentOnDemand.Runtimes do
               sprite_env :: [{String.t(), String.t()}]
             ) :: :ok | {:error, term()}
 
+  @doc """
+  Absolute path on the sprite where inline skills are written as
+  `<skills_root>/<name>/SKILL.md`. Each runtime points this at whatever
+  directory its CLI scans for skills.
+  """
+  @callback skills_root() :: String.t()
+
+  @doc """
+  Identifier passed to `npx skills add ... --agent <id>` when installing
+  a github-source skill. The skills.sh CLI uses this to choose the
+  on-disk layout for the target runtime (claude-code, codex, gemini-cli,
+  opencode).
+  """
+  @callback skills_sh_agent() :: String.t()
+
   @optional_callbacks default_env: 1, write_config: 2, prepare_sprite: 3
 
   @runtime_modules %{

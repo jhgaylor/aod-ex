@@ -33,7 +33,7 @@ defmodule AgentOnDemandWeb.AgentsLive.Form do
       "model" => a.model || "anthropic/claude-sonnet-4-6",
       "runtime" => a.runtime || "claude",
       "environment_id" => a.environment_id || "",
-      "skills" => Enum.join(a.skills || [], ","),
+      "skills_json" => Jason.encode!(a.skills || [], pretty: true),
       "mcp_servers_json" => Jason.encode!(a.mcp_servers || %{}, pretty: true)
     }
   end
@@ -44,19 +44,19 @@ defmodule AgentOnDemandWeb.AgentsLive.Form do
   end
 
   def handle_event("submit", %{"agent" => params}, socket) do
-    case parse_mcp(params) do
-      {:ok, mcp} ->
-        attrs =
-          params
-          |> Map.put("skills", parse_skills(params["skills"]))
-          |> Map.put("mcp_servers", mcp)
-          |> Map.delete("mcp_servers_json")
-          |> nil_if_blank("environment_id")
+    with {:ok, mcp} <- parse_mcp(params),
+         {:ok, skills} <- parse_skills(params) do
+      attrs =
+        params
+        |> Map.put("skills", skills)
+        |> Map.put("mcp_servers", mcp)
+        |> Map.drop(["skills_json", "mcp_servers_json"])
+        |> nil_if_blank("environment_id")
 
-        save(socket, attrs)
-
-      {:error, msg} ->
-        {:noreply, assign(socket, :errors, %{"mcp_servers_json" => msg})}
+      save(socket, attrs)
+    else
+      {:error, field, msg} ->
+        {:noreply, assign(socket, :errors, %{field => msg})}
     end
   end
 
@@ -80,18 +80,25 @@ defmodule AgentOnDemandWeb.AgentsLive.Form do
     end
   end
 
-  defp parse_skills(nil), do: []
-  defp parse_skills(""), do: []
-  defp parse_skills(s), do: s |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+  defp parse_skills(%{"skills_json" => v}) when v in [nil, ""], do: {:ok, []}
 
-  defp parse_mcp(%{"mcp_servers_json" => ""}), do: {:ok, %{}}
-  defp parse_mcp(%{"mcp_servers_json" => nil}), do: {:ok, %{}}
+  defp parse_skills(%{"skills_json" => json}) do
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) -> {:ok, list}
+      {:ok, _} -> {:error, "skills_json", "must be a JSON array"}
+      {:error, %Jason.DecodeError{} = e} ->
+        {:error, "skills_json", "invalid JSON: #{Exception.message(e)}"}
+    end
+  end
+
+  defp parse_mcp(%{"mcp_servers_json" => v}) when v in [nil, ""], do: {:ok, %{}}
 
   defp parse_mcp(%{"mcp_servers_json" => json}) do
     case Jason.decode(json) do
       {:ok, m} when is_map(m) -> {:ok, m}
-      {:ok, _} -> {:error, "must be a JSON object"}
-      {:error, %Jason.DecodeError{} = e} -> {:error, "invalid JSON: #{Exception.message(e)}"}
+      {:ok, _} -> {:error, "mcp_servers_json", "must be a JSON object"}
+      {:error, %Jason.DecodeError{} = e} ->
+        {:error, "mcp_servers_json", "invalid JSON: #{Exception.message(e)}"}
     end
   end
 
@@ -141,8 +148,16 @@ defmodule AgentOnDemandWeb.AgentsLive.Form do
           </select>
         </div>
 
-        <.input id="skills" name="agent[skills]" label="Skills (comma-separated)"
-          value={@form["skills"]} placeholder="aod,my-skill"/>
+        <.input id="skills_json" name="agent[skills_json]" type="textarea" rows="6"
+          label="Skills (JSON array)"
+          value={@form["skills_json"]}
+          placeholder={~s([{"source": "anthropics/skills", "name": "frontend-design"}])}/>
+        <.error_msg field="skills_json" errors={@errors}/>
+        <p class="text-xs text-zinc-500 -mt-2">
+          Each entry is either inline (<code>{~s({"name": "...", "content": "<SKILL.md body>"})}</code>)
+          or github via <a href="https://skills.sh" class="underline">skills.sh</a>
+          (<code>{~s({"source": "owner/repo", "name": "<optional>"})}</code>).
+        </p>
 
         <.input id="mcp_servers_json" name="agent[mcp_servers_json]" type="textarea" rows="6"
           label="MCP servers (JSON object)" value={@form["mcp_servers_json"]}/>

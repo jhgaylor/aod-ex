@@ -13,7 +13,10 @@ defmodule AgentOnDemandWeb.AgentControllerTest do
         "runtime" => "claude",
         "system" => "you are alpha",
         "environment_id" => env.id,
-        "skills" => ["aod"],
+        "skills" => [
+          %{"source" => "anthropics/skills", "name" => "frontend-design"},
+          %{"name" => "house-style", "content" => "---\nname: house-style\n---\nbody"}
+        ],
         "mcp_servers" => %{"context7" => %{"type" => "http", "url" => "https://x"}}
       }
 
@@ -23,7 +26,7 @@ defmodule AgentOnDemandWeb.AgentControllerTest do
       assert created["name"] == payload["name"]
       assert created["environment_id"] == env.id
       assert created["mcp_servers"] == %{"context7" => %{"type" => "http", "url" => "https://x"}}
-      assert created["skills"] == ["aod"]
+      assert created["skills"] == payload["skills"]
 
       assert %{"data" => fetched} =
                get(conn, ~p"/api/agents/#{created["id"]}") |> json_response(200)

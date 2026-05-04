@@ -2,6 +2,15 @@
 
 Notable changes since the v1 functional baseline ("the four functional gaps closed"). Reverse-chronological — newest at top.
 
+## v0.2.9 — skills.sh-shaped skills (2026-05-04)
+
+`agents.skills` is now a list of `{name?, content?, source?}` objects instead of a list of bundled-skill names. Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, name?}` — installed on the sprite via the [skills.sh](https://skills.sh) CLI). The bundled `aod` callback skill is always prepended automatically.
+
+- **Schema** — `agents.skills` column type swapped from `{:array, :string}` to `{:array, :map}`. Changeset enforces "exactly one of `content`/`source`" and "inline requires a name." Data migration `20260504000000_rehydrate_agent_skills.exs` translates `metadata.legacy_skills` (from `mix aod.import`) into the new shape and clears stale string entries.
+- **Runtime trait** — added `skills_root/0` + `skills_sh_agent/0` callbacks to `AgentOnDemand.Runtimes`. claude → `claude-code`, codex → `codex`, gemini → `gemini-cli`, opencode → `opencode`. `skills_root` paths reflect each runtime's actual `HOME` on the sprite (`/tmp` for gemini and opencode, `/home/sprite` for claude and codex).
+- **Provisioning** — `SpriteSkills.mount/3` rewritten: inline entries → `Filesystem.write` to `<skills_root>/<name>/SKILL.md`; github entries shell out to `npx -y skills@latest add <source> --global --agent <id> --yes [--skill <name>]`. The codex `AGENTS.md` and gemini `GEMINI.md` concatenation paths are gone — skills.sh handles those layouts itself. `safe_token!/1` allow-lists `[A-Za-z0-9._/-]` and raises on shell metacharacters; tested directly against shell-injection inputs.
+- **Three surfaces** — OpenAPI schemas updated; LiveView form swapped the comma-text input for a JSON textarea matching the `mcp_servers_json` pattern; `mix aod.import` now translates `{type: "github", source, name?}` directly into the new shape and drops the "won't auto-mount" warning.
+
 ## Production polish + remaining runtimes (2026-05-01, second pass)
 
 - **OpenTelemetry stack** — `opentelemetry`, `opentelemetry_phoenix` (auto HTTP spans), `opentelemetry_ecto` (auto DB spans), OTLP exporter. Configured opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT` (no-op when unset). `TRACEPARENT` propagated into the sprite env so claude / codex / gemini / opencode tag their model API calls into our trace.

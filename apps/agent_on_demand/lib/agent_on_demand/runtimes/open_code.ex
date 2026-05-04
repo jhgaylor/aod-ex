@@ -25,6 +25,14 @@ defmodule AgentOnDemand.Runtimes.OpenCode do
   # /home/sprite (which prevents `git init` from stat'ing the work tree).
   @workdir "/tmp/opencode-workspace"
 
+  # opencode runs with HOME=/tmp (see default_env/1), so its skills
+  # discovery path is rooted there.
+  @impl true
+  def skills_root, do: "/tmp/.config/opencode/skills"
+
+  @impl true
+  def skills_sh_agent, do: "opencode"
+
   @impl true
   def build_command(agent, _prompt, mode, _runtime_session_id, _opts) do
     base = [

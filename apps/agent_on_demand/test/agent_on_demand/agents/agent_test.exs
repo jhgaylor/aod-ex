@@ -70,6 +70,72 @@ defmodule AgentOnDemand.Agents.AgentTest do
       assert a.skills == []
     end
 
+    test "accepts inline skill entries" do
+      cs =
+        Agent.changeset(%Agent{}, %{
+          name: "x",
+          model: "anthropic/claude-sonnet-4-6",
+          runtime: "claude",
+          skills: [%{"name" => "house-style", "content" => "---\nname: house-style\n---\nbody"}]
+        })
+
+      assert cs.valid?, inspect(errors_on(cs))
+    end
+
+    test "accepts github skill entries" do
+      cs =
+        Agent.changeset(%Agent{}, %{
+          name: "x",
+          model: "anthropic/claude-sonnet-4-6",
+          runtime: "claude",
+          skills: [
+            %{"source" => "anthropics/skills", "name" => "frontend-design"},
+            %{"source" => "anthropics/skills"}
+          ]
+        })
+
+      assert cs.valid?, inspect(errors_on(cs))
+    end
+
+    test "rejects skill entry with both content and source" do
+      cs =
+        Agent.changeset(%Agent{}, %{
+          name: "x",
+          model: "anthropic/claude-sonnet-4-6",
+          runtime: "claude",
+          skills: [%{"name" => "x", "content" => "...", "source" => "anthropics/skills"}]
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:skills]
+    end
+
+    test "rejects skill entry with neither content nor source" do
+      cs =
+        Agent.changeset(%Agent{}, %{
+          name: "x",
+          model: "anthropic/claude-sonnet-4-6",
+          runtime: "claude",
+          skills: [%{"name" => "x"}]
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:skills]
+    end
+
+    test "rejects inline skill entry without a name" do
+      cs =
+        Agent.changeset(%Agent{}, %{
+          name: "x",
+          model: "anthropic/claude-sonnet-4-6",
+          runtime: "claude",
+          skills: [%{"content" => "..."}]
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:skills]
+    end
+
     test "preserves agent.metadata in upsert path" do
       a = insert_agent(%{"metadata" => %{"foo" => "bar"}})
       assert a.metadata == %{"foo" => "bar"}

@@ -15,10 +15,10 @@ defmodule Mix.Tasks.Aod.Import do
     * `environment.networking.type` → `networking_type` (the rest of
       networking is dropped; there's nothing else in the dump).
     * `environment.setup_script: null` → `""`.
-    * `agent.skills` (list of {type, source, name?}) is preserved verbatim
-      under `metadata.legacy_skills`. The new schema's `skills` field is a
-      list of names of *bundled* skills (priv/sprite_skills/), so any old
-      skill entries can't be mounted automatically.
+    * `agent.skills` (legacy `{type: "github", source, name?}` entries) is
+      translated 1:1 into the new schema's SkillSpec shape (`{source, name?}`).
+      Non-github legacy entries (none observed in dumps so far) are dropped
+      with a warning.
     * `agent.mcp_servers` (list) → map keyed by `name`. Entries with empty
       `name` are dropped.
     * `agent.metadata.nebula_*` and `relay_workspace_id` are preserved
@@ -81,12 +81,10 @@ defmodule Mix.Tasks.Aod.Import do
   end
 
   defp transform_agent(a) do
-    legacy_skills = a["skills"] || []
     legacy_meta = a["metadata"] || %{}
 
     metadata =
       %{}
-      |> maybe_put("legacy_skills", legacy_skills, &(&1 != []))
       |> maybe_put("legacy_metadata", legacy_meta, &(map_size(&1) > 0))
 
     %{
@@ -97,11 +95,31 @@ defmodule Mix.Tasks.Aod.Import do
       model: a["model"],
       runtime: a["runtime"],
       environment_id: a["environment_id"],
-      skills: [],
+      skills: transform_skills(a["skills"] || []),
       mcp_servers: transform_mcp(a["mcp_servers"] || []),
       metadata: metadata
     }
   end
+
+  # Legacy shape: list of `{type: "github", source, name?, description?}`.
+  # New shape: list of `{source, name?}` (or inline `{name, content}`, but
+  # the legacy dump never carries inline). Drop the redundant `type` and
+  # any `description` field, since the new schema doesn't store it.
+  defp transform_skills(list) when is_list(list) do
+    list
+    |> Enum.flat_map(fn
+      %{"type" => "github", "source" => source} = entry when is_binary(source) ->
+        case entry["name"] do
+          n when is_binary(n) and n != "" -> [%{"source" => source, "name" => n}]
+          _ -> [%{"source" => source}]
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  defp transform_skills(_), do: []
 
   defp transform_mcp(servers) when is_list(servers) do
     servers
@@ -171,8 +189,8 @@ defmodule Mix.Tasks.Aod.Import do
       if(a["environment_id"] && !MapSet.member?(env_ids, a["environment_id"]),
         do: "agent #{a["name"]}: env_id #{a["environment_id"]} not in dump"
       ),
-      if(a["skills"] && a["skills"] != [],
-        do: "agent #{a["name"]}: #{length(a["skills"])} legacy skill(s) won't auto-mount"
+      if(non_github_skills?(a["skills"]),
+        do: "agent #{a["name"]}: dropped non-github legacy skill entry"
       ),
       if(empty_name_mcp?(a["mcp_servers"]),
         do: "agent #{a["name"]}: dropped MCP server(s) with empty name"
@@ -186,6 +204,16 @@ defmodule Mix.Tasks.Aod.Import do
   end
 
   defp empty_name_mcp?(_), do: false
+
+  defp non_github_skills?(list) when is_list(list) do
+    Enum.any?(list, fn
+      %{"type" => "github"} -> false
+      m when is_map(m) -> true
+      _ -> true
+    end)
+  end
+
+  defp non_github_skills?(_), do: false
 
   defp extract_leaked_tokens(%{"mcp_servers" => servers}) when is_list(servers) do
     Enum.flat_map(servers, fn s ->
@@ -248,10 +276,9 @@ defmodule Mix.Tasks.Aod.Import do
     for a <- agents do
       env_label = if a.environment_id, do: short(a.environment_id), else: "(none)"
       mcp_names = a.mcp_servers |> Map.keys() |> Enum.join(",")
-      legacy_skill_count = (a.metadata["legacy_skills"] || []) |> length()
 
       Mix.shell().info(
-        "  #{String.pad_trailing(a.name, 26)} #{String.pad_trailing(a.runtime, 8)} #{String.pad_trailing(a.model, 32)} env=#{env_label} mcp=[#{mcp_names}] legacy_skills=#{legacy_skill_count}"
+        "  #{String.pad_trailing(a.name, 26)} #{String.pad_trailing(a.runtime, 8)} #{String.pad_trailing(a.model, 32)} env=#{env_label} mcp=[#{mcp_names}] skills=#{length(a.skills)}"
       )
     end
 
