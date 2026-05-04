@@ -2,6 +2,17 @@
 
 Notable changes since the v1 functional baseline ("the four functional gaps closed"). Reverse-chronological — newest at top.
 
+## v0.2.10 — `aod shellenv` (2026-05-04)
+
+`aod shellenv --name <sprite-name>` recovers an instance's `AOD_BASE_URL` + `AOD_TOKEN` from its deployed `start.sh` and prints shell exports on stdout. Designed for `eval`:
+
+```bash
+eval "$(aod shellenv --name aod-host-1730758800)"
+aod conv list   # uses the recovered creds
+```
+
+Stdout is exports only (so the eval is safe); the recovery banner goes to stderr. Reuses the same `parse_start_sh` round-trip the `aod up --name` upgrade path already relies on.
+
 ## v0.2.9 — skills.sh-shaped skills (2026-05-04)
 
 `agents.skills` is now a list of `{name?, content?, source?}` objects instead of a list of bundled-skill names. Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, name?}` — installed on the sprite via the [skills.sh](https://skills.sh) CLI). The bundled `aod` callback skill is always prepended automatically.

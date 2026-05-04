@@ -24,6 +24,7 @@ defmodule AodCli do
 
       aod up [--name NAME] [--release vX.Y.Z]   deploy or upgrade an AoD instance into a Sprite
       aod down <sprite-name>                    destroy a deployed AoD instance
+      aod shellenv --name <sprite-name>         print `export AOD_BASE_URL=...; export AOD_TOKEN=...` recovered from a deployed instance — eval to source into your shell
 
   Pass `--json` to any list/show command to get raw JSON.
   """
@@ -41,6 +42,7 @@ defmodule AodCli do
       ["apply" | rest] -> AodCli.Apply.dispatch(rest)
       ["up" | rest] -> AodCli.Up.dispatch(rest)
       ["down" | rest] -> AodCli.Down.dispatch(rest)
+      ["shellenv" | rest] -> AodCli.Shellenv.dispatch(rest)
       ["help"] -> usage()
       ["--help"] -> usage()
       [] -> usage()
