@@ -7,8 +7,9 @@ defmodule AgentOnDemand.Conversations.Provisioning do
   Order in `ConversationServer.handle_continue(:provision)`:
     1. mount skills (inline writes + skills.sh github installs — github
        installs need network and run before the policy lockdown)
-    2. `apply_network_policy/3` (sprite API call — fast)
-    3. `install_packages/4` (apt/npm — slow)
+    2. `install_packages/4` (apt/npm — needs unrestricted network; must
+       run before the policy lockdown so apt can reach package repos)
+    3. `apply_network_policy/3` (sprite API call — fast)
     4. `clone_repositories/4` (git clone — slow)
     5. user's `setup_script` (whatever they supplied)
     6. write runtime-specific config (e.g. claude `~/.claude.json`)
