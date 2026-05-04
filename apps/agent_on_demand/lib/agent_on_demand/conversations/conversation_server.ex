@@ -193,6 +193,26 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp do_fresh_provision(state, conv, sandbox, agent, env, secrets) do
+    try do
+      do_fresh_provision_inner(state, conv, sandbox, agent, env, secrets)
+    rescue
+      exception ->
+        stack = __STACKTRACE__
+        msg = Exception.format(:error, exception, stack)
+        Logger.error("provision raised an unhandled exception:\n#{msg}")
+
+        publish_stage(state.conversation_id, "provision", "failed", %{
+          reason: Exception.message(exception),
+          stack: Exception.format_stacktrace(stack) |> String.slice(0, 2000)
+        })
+
+        {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+        Conversations.update_conversation(conv, %{status: "failed"})
+        {:stop, :normal, state}
+    end
+  end
+
+  defp do_fresh_provision_inner(state, conv, sandbox, agent, env, secrets) do
     {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
     publish_stage(state.conversation_id, "provision", "started")
 
