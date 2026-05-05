@@ -52,14 +52,10 @@ defmodule AoD.Umbrella.MixProject do
         # (jason / req / yaml_elixir / sprites are all pure-elixir);
         # avoids Burrito iterating sibling-app deps like exqlite that
         # aren't in this release.
-        # CrossVersionNifCopy still needed: OTP-bundled NIFs (crypto,
-        # asn1) drift versions between the build host and target ERTS,
-        # and stock CopyERTS only overwrites on exact-version match.
         burrito:
           Keyword.merge(burrito_targets(skip_nifs: true),
             extra_steps: [
-              fetch: [pre: [AoD.Burrito.InjectMuslPath]],
-              patch: [post: [AoD.Burrito.CrossVersionNifCopy]]
+              fetch: [pre: [AoD.Burrito.InjectMuslPath]]
             ]
           )
       ],
@@ -71,7 +67,7 @@ defmodule AoD.Umbrella.MixProject do
         # runtime.exs only sets when RELEASE_NAME=aod.
         applications: [aod_cli: :permanent, agent_on_demand: :permanent],
         steps: [:assemble, &Burrito.wrap/1],
-        burrito: burrito_targets_with_nif_workarounds()
+        burrito: burrito_targets_with_musl_fix()
       ]
     ]
   end
@@ -100,11 +96,10 @@ defmodule AoD.Umbrella.MixProject do
     ]
   end
 
-  defp burrito_targets_with_nif_workarounds do
+  defp burrito_targets_with_musl_fix do
     Keyword.merge(burrito_targets(),
       extra_steps: [
-        fetch: [pre: [AoD.Burrito.InjectMuslPath]],
-        patch: [post: [AoD.Burrito.CrossVersionNifCopy]]
+        fetch: [pre: [AoD.Burrito.InjectMuslPath]]
       ]
     )
   end
