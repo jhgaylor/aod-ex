@@ -81,6 +81,11 @@ nav:
           - Manifest (aod apply): concepts/manifest.md
           - Spawning sub-agents: concepts/spawning.md
           - API reference: concepts/api.md
+          - Secrets managers:
+              - Overview: concepts/secrets-managers.md
+              - 1Password: concepts/secrets/1password.md
+              - Bitwarden (bws): concepts/secrets/bws.md
+              - Infisical: concepts/secrets/infisical.md
       - SDKs:
           - Python: sdks/python.md
           - TypeScript: sdks/typescript.md
