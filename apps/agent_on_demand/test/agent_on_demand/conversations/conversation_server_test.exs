@@ -271,6 +271,16 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
     end
   end
 
+  describe "git_author_env/0" do
+    test "includes all four git authorship variables" do
+      env = ConversationServer.git_author_env()
+      assert {"GIT_AUTHOR_NAME", "AoD"} in env
+      assert {"GIT_AUTHOR_EMAIL", "aod@local"} in env
+      assert {"GIT_COMMITTER_NAME", "AoD"} in env
+      assert {"GIT_COMMITTER_EMAIL", "aod@local"} in env
+    end
+  end
+
   describe "send_prompt + interrupt + terminate via API" do
     test "send_prompt on idle conversation with no GenServer → wakes via wake_conversation",
          %{agent: agent} do

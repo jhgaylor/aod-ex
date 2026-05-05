@@ -512,11 +512,22 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     (runtime_module.default_env(agent) || []) ++
       aod_callback_env() ++
       otel_propagation_env() ++
+      git_author_env() ++
       if(env,
         do: Enum.map(env.env_vars, fn {k, v} -> {to_string(k), to_string(v)} end),
         else: []
       ) ++
       Enum.map(secrets, fn {k, v} -> {k, v} end)
+  end
+
+  @doc false
+  def git_author_env do
+    [
+      {"GIT_AUTHOR_NAME", "AoD"},
+      {"GIT_AUTHOR_EMAIL", "aod@local"},
+      {"GIT_COMMITTER_NAME", "AoD"},
+      {"GIT_COMMITTER_EMAIL", "aod@local"}
+    ]
   end
 
   # Env secrets first, vault overrides last — vault wins on key collision.
