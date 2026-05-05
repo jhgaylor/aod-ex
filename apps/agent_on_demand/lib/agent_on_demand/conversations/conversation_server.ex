@@ -279,14 +279,14 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
       :cold ->
         with :ok <-
-               AgentOnDemand.Conversations.Provisioning.apply_network_policy(sprite, env, conv_id),
-             :ok <-
                AgentOnDemand.Conversations.Provisioning.install_packages(
                  sprite,
                  env,
                  sprite_env,
                  conv_id
                ),
+             :ok <-
+               AgentOnDemand.Conversations.Provisioning.apply_network_policy(sprite, env, conv_id),
              :ok <-
                AgentOnDemand.Conversations.Provisioning.clone_repositories(
                  sprite,
