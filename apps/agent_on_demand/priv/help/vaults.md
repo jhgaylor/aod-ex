@@ -72,6 +72,22 @@ vault "alice" secrets:       GITHUB_TOKEN=ghp_alice_personal
 
 Repository clones that reference `secret_key: GITHUB_TOKEN` see the vault's value too — same merged map.
 
+## Git identity
+
+Two vault secrets control the git author and committer identity for every commit an agent makes inside the sprite:
+
+| Key | Description |
+|-----|-------------|
+| `GIT_AUTHOR_NAME` | Full name — used for both author and committer |
+| `GIT_AUTHOR_EMAIL` | Email — used for both author and committer |
+
+```bash
+aod vault set-secret alice GIT_AUTHOR_NAME  "Alice Smith"
+aod vault set-secret alice GIT_AUTHOR_EMAIL "alice@example.com"
+```
+
+Without these keys the default `AoD <aod@local>` identity is used. The override applies to all git operations the agent performs inside the sprite.
+
 ## Manifest
 
 Vaults are first-class in `aod apply`:
@@ -85,8 +101,10 @@ metadata:
 spec:
   description: Alice's credentials
   secrets:
-    GITHUB_TOKEN: ghp_alice_...
-    NPM_TOKEN: npm_alice_...
+    GIT_AUTHOR_NAME:  Alice Smith
+    GIT_AUTHOR_EMAIL: alice@example.com
+    GITHUB_TOKEN:     ghp_alice_...
+    NPM_TOKEN:        npm_alice_...
 ```
 
 Inline secrets here are convenient for boostrapping but mean the manifest holds plaintext — keep `aod.yml` out of version control or use a per-environment overlay.
