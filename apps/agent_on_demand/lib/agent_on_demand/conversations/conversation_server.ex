@@ -509,24 +509,29 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp build_sprite_env(runtime_module, agent, env, secrets) do
+    git_secrets  = Map.take(secrets, ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"])
+    rest_secrets = Map.drop(secrets, ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"])
+
     (runtime_module.default_env(agent) || []) ++
       aod_callback_env() ++
       otel_propagation_env() ++
-      git_author_env() ++
+      git_author_env(git_secrets) ++
       if(env,
         do: Enum.map(env.env_vars, fn {k, v} -> {to_string(k), to_string(v)} end),
         else: []
       ) ++
-      Enum.map(secrets, fn {k, v} -> {k, v} end)
+      Enum.map(rest_secrets, fn {k, v} -> {k, v} end)
   end
 
   @doc false
-  def git_author_env do
+  def git_author_env(secrets) do
+    name  = secrets["GIT_AUTHOR_NAME"]  || "AoD"
+    email = secrets["GIT_AUTHOR_EMAIL"] || "aod@local"
     [
-      {"GIT_AUTHOR_NAME", "AoD"},
-      {"GIT_AUTHOR_EMAIL", "aod@local"},
-      {"GIT_COMMITTER_NAME", "AoD"},
-      {"GIT_COMMITTER_EMAIL", "aod@local"}
+      {"GIT_AUTHOR_NAME",     name},
+      {"GIT_AUTHOR_EMAIL",    email},
+      {"GIT_COMMITTER_NAME",  name},
+      {"GIT_COMMITTER_EMAIL", email}
     ]
   end
 

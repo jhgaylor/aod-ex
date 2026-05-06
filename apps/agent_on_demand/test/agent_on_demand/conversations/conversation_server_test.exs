@@ -271,13 +271,43 @@ defmodule AgentOnDemand.Conversations.ConversationServerTest do
     end
   end
 
-  describe "git_author_env/0" do
-    test "includes all four git authorship variables" do
-      env = ConversationServer.git_author_env()
-      assert {"GIT_AUTHOR_NAME", "AoD"} in env
-      assert {"GIT_AUTHOR_EMAIL", "aod@local"} in env
-      assert {"GIT_COMMITTER_NAME", "AoD"} in env
-      assert {"GIT_COMMITTER_EMAIL", "aod@local"} in env
+  describe "git_author_env/1" do
+    test "returns AoD defaults when secrets map is empty" do
+      assert ConversationServer.git_author_env(%{}) == [
+        {"GIT_AUTHOR_NAME", "AoD"},
+        {"GIT_AUTHOR_EMAIL", "aod@local"},
+        {"GIT_COMMITTER_NAME", "AoD"},
+        {"GIT_COMMITTER_EMAIL", "aod@local"}
+      ]
+    end
+
+    test "uses vault-supplied name and email for all four git vars" do
+      secrets = %{"GIT_AUTHOR_NAME" => "Alice", "GIT_AUTHOR_EMAIL" => "alice@example.com"}
+
+      assert ConversationServer.git_author_env(secrets) == [
+        {"GIT_AUTHOR_NAME", "Alice"},
+        {"GIT_AUTHOR_EMAIL", "alice@example.com"},
+        {"GIT_COMMITTER_NAME", "Alice"},
+        {"GIT_COMMITTER_EMAIL", "alice@example.com"}
+      ]
+    end
+
+    test "falls back to default for missing name" do
+      assert ConversationServer.git_author_env(%{"GIT_AUTHOR_EMAIL" => "alice@example.com"}) == [
+        {"GIT_AUTHOR_NAME", "AoD"},
+        {"GIT_AUTHOR_EMAIL", "alice@example.com"},
+        {"GIT_COMMITTER_NAME", "AoD"},
+        {"GIT_COMMITTER_EMAIL", "alice@example.com"}
+      ]
+    end
+
+    test "falls back to default for missing email" do
+      assert ConversationServer.git_author_env(%{"GIT_AUTHOR_NAME" => "Alice"}) == [
+        {"GIT_AUTHOR_NAME", "Alice"},
+        {"GIT_AUTHOR_EMAIL", "aod@local"},
+        {"GIT_COMMITTER_NAME", "Alice"},
+        {"GIT_COMMITTER_EMAIL", "aod@local"}
+      ]
     end
   end
 
