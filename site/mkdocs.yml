@@ -1,14 +1,14 @@
 site_name: Agent on Demand
 site_description: A REST API for spawning AI coding agents inside Sprite microVMs.
-site_url: https://ravi-hq.github.io/agent-on-demand-ex/
-repo_url: https://github.com/ravi-hq/agent-on-demand-ex
-repo_name: ravi-hq/agent-on-demand-ex
+site_url: https://jhgaylor.github.io/aod-ex/
+repo_url: https://github.com/jhgaylor/aod-ex
+repo_name: jhgaylor/aod-ex
 edit_uri: edit/main/site/docs/
 
 # `site/docs/` is partly hand-written and partly mirrored from
 # elsewhere in the repo (priv/help/, clients/*/README.md,
-# docs/{deploy,runbook}.md) by the `make sync` target before mkdocs
-# runs. See site/sync_content.sh for the mapping.
+# docs/{deploy,runbook}.md, .claude/skills/aod/SKILL.md) by the
+# `sync_content.sh` script before mkdocs runs.
 docs_dir: docs
 site_dir: ../_site
 
@@ -80,6 +80,7 @@ nav:
           - Environments: concepts/environments.md
           - Manifest (aod apply): concepts/manifest.md
           - Spawning sub-agents: concepts/spawning.md
+          - Skills: concepts/skills.md
           - API reference: concepts/api.md
           - Secrets managers:
               - Overview: concepts/secrets-managers.md
