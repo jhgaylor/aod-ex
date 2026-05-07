@@ -10,6 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+mkdir -p docs/concepts/secrets docs/operating docs/sdks
+
 echo "Syncing quickstart + concept pages from priv/help..."
 cp -v ../apps/agent_on_demand/priv/help/quickstart.md  docs/quickstart.md
 cp -v ../apps/agent_on_demand/priv/help/agents.md      docs/concepts/agents.md
@@ -19,7 +21,6 @@ cp -v ../apps/agent_on_demand/priv/help/spawning.md    docs/concepts/spawning.md
 cp -v ../apps/agent_on_demand/priv/help/api.md         docs/concepts/api.md
 
 echo "Syncing secrets manager pages from priv/help..."
-mkdir -p docs/concepts/secrets
 cp -v ../apps/agent_on_demand/priv/help/secrets-managers.md docs/concepts/secrets-managers.md
 cp -v ../apps/agent_on_demand/priv/help/secrets/1password.md docs/concepts/secrets/1password.md
 cp -v ../apps/agent_on_demand/priv/help/secrets/bws.md       docs/concepts/secrets/bws.md
