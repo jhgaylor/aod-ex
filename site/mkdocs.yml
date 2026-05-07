@@ -1,6 +1,6 @@
 site_name: Agent on Demand
 site_description: A REST API for spawning AI coding agents inside Sprite microVMs.
-site_url: https://jhgaylor.github.io/aod-ex/
+site_url: https://jakegaylor.com/aod-ex/
 repo_url: https://github.com/jhgaylor/aod-ex
 repo_name: jhgaylor/aod-ex
 edit_uri: edit/main/site/docs/
