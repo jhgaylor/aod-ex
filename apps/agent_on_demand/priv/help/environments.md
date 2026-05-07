@@ -18,21 +18,21 @@ Fields:
 curl -s -X POST "$AOD_BASE_URL/api/environments" \
   -H "Authorization: Bearer $AOD_TOKEN" -H "Content-Type: application/json" \
   -d '{
-    "name": "ravi-hq",
+    "name": "my-project",
     "packages": {"apt": ["jq", "ripgrep"]},
-    "env_vars": {"PROJECT_ROOT": "/workspace/agent-on-demand"},
+    "env_vars": {"PROJECT_ROOT": "/workspace/my-repo"},
     "networking_type": "limited",
     "networking_config": {
       "allowed_hosts": ["github.com", "api.anthropic.com", "registry.npmjs.org"]
     },
     "repositories": [
       {
-        "url": "https://github.com/ravi-hq/agent-on-demand",
-        "mount_path": "/workspace/agent-on-demand",
+        "url": "https://github.com/my-org/my-repo",
+        "mount_path": "/workspace/my-repo",
         "secret_key": "GITHUB_TOKEN"
       }
     ],
-    "setup_script": "cd /workspace/agent-on-demand && uv sync"
+    "setup_script": "cd /workspace/my-repo && uv sync"
   }'
 ```
 
@@ -57,7 +57,7 @@ Use `ssh_key_secret` instead of `secret_key`:
 
 ```json
 {
-  "url": "git@github.com:ravi-hq/private-repo.git",
+  "url": "git@github.com:my-org/private-repo.git",
   "mount_path": "/workspace/private-repo",
   "ssh_key_secret": "DEPLOY_KEY"
 }

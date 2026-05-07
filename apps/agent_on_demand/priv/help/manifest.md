@@ -28,7 +28,7 @@ The `metadata.name` is the upsert key. If a resource with that name exists, it's
 apiVersion: aod/v1
 kind: Environment
 metadata:
-  name: ravi-hq
+  name: my-project
 spec:
   packages:
     apt: [jq, ripgrep]
@@ -53,7 +53,7 @@ metadata:
 spec:
   runtime: claude
   model: anthropic/claude-sonnet-4-6
-  environment: ravi-hq        # ← resolved to environment_id at apply time
+  environment: my-project        # ← resolved to environment_id at apply time
   system: You are a research assistant.
   skills: [aod]
   mcp_servers:
@@ -75,7 +75,7 @@ Directory mode walks recursively. Any YAML document carrying both `apiVersion` a
 Output uses `+` for create, `~` for update, one line per resource:
 
 ```
-env    +  ravi-hq
+env    +  my-project
 vault  +  alice
   secret  ~  alice/GITHUB_TOKEN
   secret  ~  alice/NPM_TOKEN
@@ -104,7 +104,7 @@ Add another provider (Vault, AWS Secrets Manager, Doppler, ...) by implementing 
 apiVersion: aod/v1
 kind: Environment
 metadata:
-  name: ravi-hq
+  name: my-project
 spec:
   secrets:
     GITHUB_TOKEN: ${GH_PAT}                                  # ← from $GH_PAT at apply time
@@ -141,13 +141,13 @@ Both kinds of resolution collect failures across the whole manifest and abort be
 
 ```
 apply-time substitution failed — set these in the env or pass --var KEY=VAL:
-  ravi-hq: GH_PAT, POSTHOG
+  my-project: GH_PAT, POSTHOG
   alice: ALICE_GH_PAT
 ```
 
 ```
 apply-time secret resolution failed:
-  ravi-hq:
+  my-project:
     POSTHOG_API_KEY (op://Work/PostHog/api_key): [ERROR] ... session expired
     NPM_TOKEN (bws://abc-123): Error: invalid access token
 ```

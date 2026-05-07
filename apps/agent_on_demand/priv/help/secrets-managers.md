@@ -31,7 +31,7 @@ Use `$${VAR}` to write a literal `${VAR}` (escapes the substitution).
 apiVersion: aod/v1
 kind: Environment
 metadata:
-  name: ravi-hq
+  name: my-project
 spec:
   secrets:
     GITHUB_TOKEN: ${GH_PAT}                                 # from $GH_PAT in shell
@@ -62,10 +62,10 @@ Both resolution phases collect all failures before aborting, so you fix everythi
 
 ```
 apply-time substitution failed — set these in the env or pass --var KEY=VAL:
-  ravi-hq: GH_PAT
+  my-project: GH_PAT
 
 apply-time secret resolution failed:
-  ravi-hq:
+  my-project:
     POSTHOG_API_KEY (op://Work/PostHog/api_key): [ERROR] ... session expired
     NPM_TOKEN (bws://be8e0ad8-...): Error: invalid access token
 ```
