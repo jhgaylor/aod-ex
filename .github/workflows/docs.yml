@@ -8,6 +8,7 @@ on:
       - 'priv/help/**'
       - 'docs/**'
       - 'clients/*/README.md'
+      - '.claude/skills/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 

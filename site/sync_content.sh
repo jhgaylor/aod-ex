@@ -25,6 +25,11 @@ cp -v ../apps/agent_on_demand/priv/help/secrets/1password.md docs/concepts/secre
 cp -v ../apps/agent_on_demand/priv/help/secrets/bws.md       docs/concepts/secrets/bws.md
 cp -v ../apps/agent_on_demand/priv/help/secrets/infisical.md docs/concepts/secrets/infisical.md
 
+echo "Syncing skills page from .claude/skills/aod/SKILL.md..."
+# Strip YAML frontmatter (everything between the first two --- lines)
+awk 'BEGIN{c=0} /^---$/{c++; next} c>=2{print}' \
+  ../.claude/skills/aod/SKILL.md > docs/concepts/skills.md
+
 echo "Syncing operating pages from docs/..."
 cp -v ../docs/runbook.md docs/operating/runbook.md
 cp -v ../docs/deploy.md  docs/operating/deploy.md
