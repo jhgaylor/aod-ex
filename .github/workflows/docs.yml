@@ -38,7 +38,7 @@ jobs:
 
       - name: Sync content
         working-directory: site
-        run: ./sync_content.sh
+        run: bash sync_content.sh
 
       - name: Build site
         working-directory: site
