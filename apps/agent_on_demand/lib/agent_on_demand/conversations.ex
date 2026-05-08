@@ -35,10 +35,12 @@ defmodule AgentOnDemand.Conversations do
   # ── conversations ─────────────────────────────────────────────────────────
 
   def list_conversations do
+    first_turn = from(t in Turn, where: t.turn_number == 1)
+
     Repo.all(
       from c in Conversation,
         order_by: [desc: c.inserted_at, desc: c.id],
-        preload: [:sandbox, :agent]
+        preload: [:sandbox, :agent, turns: ^first_turn]
     )
   end
 
@@ -49,6 +51,8 @@ defmodule AgentOnDemand.Conversations do
   Used for the left-nav "active conversations" list.
   """
   def list_active_conversations do
+    first_turn = from(t in Turn, where: t.turn_number == 1)
+
     Repo.all(
       from c in Conversation,
         where: c.status not in ["terminated", "completed", "failed"],
@@ -61,7 +65,7 @@ defmodule AgentOnDemand.Conversations do
           desc: c.inserted_at,
           desc: c.id
         ],
-        preload: [:agent]
+        preload: [:agent, turns: ^first_turn]
     )
   end
 
