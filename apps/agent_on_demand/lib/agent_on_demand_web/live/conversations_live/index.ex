@@ -69,6 +69,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
         <thead class="text-left text-zinc-500 border-b border-zinc-200">
           <tr>
             <th class="px-4 py-2">Status</th>
+            <th class="px-4 py-2">Task</th>
             <th class="px-4 py-2">Agent</th>
             <th class="px-4 py-2">Runtime</th>
             <th class="px-4 py-2">Started</th>
@@ -78,6 +79,12 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
         <tbody>
           <tr :for={c <- @conversations} class="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
             <td class="px-4 py-2"><.status_badge status={c.status} /></td>
+            <td class="px-4 py-2 text-zinc-700 max-w-xs">
+              <%= case first_prompt(c) do %>
+                <% nil -> %><span class="text-zinc-400">—</span>
+                <% prompt -> %><span class="block truncate" title={prompt}>{prompt}</span>
+              <% end %>
+            </td>
             <td class="px-4 py-2">
               <.link navigate={~p"/conversations/#{c.id}"} class="text-zinc-900 hover:underline font-medium">
                 {agent_name(@agents_by_id, c.agent_id)}
@@ -125,6 +132,20 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
       secs < 3600 -> "#{div(secs, 60)}m ago"
       secs < 86_400 -> "#{div(secs, 3600)}h ago"
       true -> "#{div(secs, 86_400)}d ago"
+    end
+  end
+
+  defp first_prompt(conv) do
+    case conv.turns do
+      %Ecto.Association.NotLoaded{} -> nil
+      [] -> nil
+      [%{prompt: prompt} | _] ->
+        prompt
+        |> String.trim()
+        |> String.replace(~r/\s+/, " ")
+        |> then(fn text ->
+          if String.length(text) > 80, do: String.slice(text, 0, 80) <> "…", else: text
+        end)
     end
   end
 end
