@@ -65,14 +65,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
           <label class="block text-sm font-medium text-zinc-700">Agent</label>
           <select name="conv[agent_id]" class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm">
             <option :for={a <- @agents} value={a.id} selected={@form["agent_id"] == a.id}>
-              {a.name} ({a.runtime} · {a.model})
+              {a.name} ({a.runtime} &middot; {a.model})
             </option>
           </select>
         </div>
         <div :if={@vaults != []} class="space-y-1">
           <label class="block text-sm font-medium text-zinc-700">Vault <span class="text-zinc-400 font-normal">(optional)</span></label>
           <select name="conv[vault_id]" class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm">
-            <option value="" selected={@form["vault_id"] in [nil, ""]}>— none —</option>
+            <option value="" selected={@form["vault_id"] in [nil, ""]}>&#8212; none &#8212;</option>
             <option :for={v <- @vaults} value={v.id} selected={@form["vault_id"] == v.id}>
               {v.name}
             </option>
@@ -82,10 +82,12 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
           </p>
         </div>
         <.input id="prompt" name="conv[prompt]" type="textarea" label="First prompt"
-          value={@form["prompt"]} rows="6" placeholder="What should the agent do?" autofocus required/>
-        <div class="flex gap-2">
-          <.btn type="submit" phx-disable-with="Starting…">Start</.btn>
+          value={@form["prompt"]} rows="6" placeholder="What should the agent do?" autofocus required
+          phx-hook="SubmitOnCmdEnter"/>
+        <div class="flex gap-2 items-center">
+          <.btn type="submit" phx-disable-with="Starting&hellip;">Start</.btn>
           <.link navigate={~p"/"}><.btn_secondary>Cancel</.btn_secondary></.link>
+          <span class="text-xs text-zinc-400 ml-1">or <kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">&#8984;</kbd> <kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">Enter</kbd></span>
         </div>
       </form>
     </div>

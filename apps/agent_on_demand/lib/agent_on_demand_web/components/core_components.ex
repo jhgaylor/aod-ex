@@ -78,7 +78,7 @@ defmodule AgentOnDemandWeb.CoreComponents do
   attr :type, :string, default: "text"
   attr :value, :string, default: ""
   attr :placeholder, :string, default: nil
-  attr :rest, :global, include: ~w(autofocus required disabled rows pattern)
+  attr :rest, :global, include: ~w(autofocus required disabled rows pattern phx-hook)
 
   def input(assigns) do
     ~H"""
