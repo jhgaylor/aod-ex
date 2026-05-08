@@ -87,14 +87,15 @@ defmodule AgentOnDemandWeb.Layouts do
     href = "/conversations/#{assigns.conv.id}"
     active = assigns.current == href
 
-    first_turn = List.first(assigns.conv.turns)
+    first_turn =
+      case assigns.conv.turns do
+        %Ecto.Association.NotLoaded{} -> nil
+        turns -> List.first(turns)
+      end
+
     task_label = if first_turn, do: truncate(first_turn.prompt, 60), else: nil
 
-    agent_name =
-      cond do
-        assigns.conv.agent && assigns.conv.agent.name -> assigns.conv.agent.name
-        true -> nil
-      end
+    agent_name = assigns.conv.agent && assigns.conv.agent.name
 
     meta =
       [agent_name, assigns.conv.runtime, sidebar_relative_time(assigns.conv.inserted_at)]
@@ -129,7 +130,7 @@ defmodule AgentOnDemandWeb.Layouts do
       <span class="flex-1 min-w-0">
         <span :if={@task_label} class="block truncate">{@task_label}</span>
         <span :if={!@task_label} class="block truncate italic text-zinc-400">(no task yet)</span>
-        <span class="block text-[11px] text-zinc-400 truncate mt-0.5">{@meta}</span>
+        <span :if={@meta != ""} class="block text-[11px] text-zinc-400 truncate mt-0.5">{@meta}</span>
       </span>
     </a>
     """
@@ -137,13 +138,13 @@ defmodule AgentOnDemandWeb.Layouts do
 
   defp truncate(nil, _max), do: nil
   defp truncate(text, max) do
-    text = String.trim(text)
-    if String.length(text) > max, do: String.slice(text, 0, max) <> "\u2026", else: text
+    text = text |> String.trim() |> String.replace(~r/\s+/, " ")
+    if String.length(text) > max, do: String.slice(text, 0, max) <> "…", else: text
   end
 
   defp sidebar_relative_time(nil), do: nil
   defp sidebar_relative_time(dt) do
-    secs = DateTime.diff(DateTime.utc_now(), dt)
+    secs = max(0, DateTime.diff(DateTime.utc_now(), dt))
     cond do
       secs < 60 -> "#{secs}s ago"
       secs < 3600 -> "#{div(secs, 60)}m ago"
