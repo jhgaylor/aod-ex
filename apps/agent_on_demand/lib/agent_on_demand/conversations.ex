@@ -35,12 +35,10 @@ defmodule AgentOnDemand.Conversations do
   # ── conversations ─────────────────────────────────────────────────────────
 
   def list_conversations do
-    first_turn = from(t in Turn, where: t.turn_number == 1)
-
     Repo.all(
       from c in Conversation,
         order_by: [desc: c.inserted_at, desc: c.id],
-        preload: [:sandbox, :agent, turns: ^first_turn]
+        preload: [:sandbox, :agent, turns: ^first_turn_query()]
     )
   end
 
@@ -51,8 +49,6 @@ defmodule AgentOnDemand.Conversations do
   Used for the left-nav "active conversations" list.
   """
   def list_active_conversations do
-    first_turn = from(t in Turn, where: t.turn_number == 1)
-
     Repo.all(
       from c in Conversation,
         where: c.status not in ["terminated", "completed", "failed"],
@@ -65,7 +61,7 @@ defmodule AgentOnDemand.Conversations do
           desc: c.inserted_at,
           desc: c.id
         ],
-        preload: [:agent, turns: ^first_turn]
+        preload: [:agent, turns: ^first_turn_query()]
     )
   end
 
@@ -310,6 +306,8 @@ defmodule AgentOnDemand.Conversations do
       {:error, _} = err -> err
     end
   end
+
+  defp first_turn_query, do: from(t in Turn, where: t.turn_number == 1)
 
   defp short_id, do: Ecto.UUID.generate() |> binary_part(0, 8)
 
