@@ -48,6 +48,9 @@ defmodule AgentOnDemandWeb.Layouts do
 
           <div class="border-t border-zinc-200 px-2 py-3 text-xs text-zinc-500 shrink-0">
             <a href={~p"/logout"} data-method="post" class="block px-3 py-1 hover:text-zinc-800">Sign out</a>
+            <button onclick="window.toggleCheatsheet && window.toggleCheatsheet()" class="block w-full text-left px-3 py-1 hover:text-zinc-800">
+              Shortcuts <kbd class="ml-1 px-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">?</kbd>
+            </button>
           </div>
         </aside>
         <section class="flex-1 p-6">
