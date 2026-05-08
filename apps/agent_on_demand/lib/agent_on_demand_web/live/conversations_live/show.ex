@@ -213,7 +213,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
           <div class="text-sm text-zinc-500">runtime: {@conv.runtime}</div>
           <div :if={@conv.sandbox} class="text-sm text-zinc-500 font-mono">
             sprite: {@conv.sandbox.sprite_name}
-            <span class="text-zinc-400">({String.slice(@conv.sandbox.id, 0, 8)} · {@conv.sandbox.status})</span>
+            <span class="text-zinc-400">({String.slice(@conv.sandbox.id, 0, 8)} &middot; {@conv.sandbox.status})</span>
           </div>
           <div :if={@conv.vault} class="text-sm text-zinc-500">
             vault: <.link navigate={~p"/vaults/#{@conv.vault.id}/edit"} class="font-medium underline">{@conv.vault.name}</.link>
@@ -278,8 +278,9 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
       <form phx-submit="send_prompt" phx-change="update_prompt" class="bg-white rounded shadow border border-zinc-200 p-4 space-y-3">
         <.input id="prompt" name="prompt" type="textarea" rows="3"
-          value={@prompt} placeholder="Send another prompt…"/>
-        <div class="flex justify-end gap-2">
+          value={@prompt} placeholder="Send another prompt…" phx-hook="SubmitOnCmdEnter"/>
+        <div class="flex justify-end items-center gap-3">
+          <span class="text-xs text-zinc-400"><kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">&#8984;</kbd> <kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">Enter</kbd> to send</span>
           <.btn type="submit" phx-disable-with="Sending…">Send</.btn>
         </div>
       </form>
@@ -354,7 +355,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       <.chat_message
         role={:user}
         name="you"
-        avatar="👤"
+        avatar="&#128100;"
         glyph_class="bg-blue-600 text-white"
         timestamp={@turn.started_at}
       >
@@ -468,11 +469,11 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp format_chat_time(_), do: ""
 
-  defp agent_glyph("claude"), do: "✦"
-  defp agent_glyph("codex"), do: "◇"
-  defp agent_glyph("gemini"), do: "◈"
-  defp agent_glyph("opencode"), do: "◉"
-  defp agent_glyph(_), do: "🤖"
+  defp agent_glyph("claude"), do: "&#10022;"
+  defp agent_glyph("codex"), do: "&#9671;"
+  defp agent_glyph("gemini"), do: "&#9672;"
+  defp agent_glyph("opencode"), do: "&#9673;"
+  defp agent_glyph(_), do: "&#129302;"
 
   # Walk this turn's events and pull out every `:text` block from each
   # runtime's stream-json. Joined so multi-message turns (claude can
@@ -513,7 +514,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     """
   end
 
-  # ── grouping events into stage sections ────────────────────────────
+  # ── grouping events into stage sections ────────────────────────────────────
 
   # Walk the events list and produce a flat list of "tree nodes" where
   # each `started`-stage event opens a `:section` node that contains all
@@ -624,7 +625,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     }
   end
 
-  # ── tree node renderer ─────────────────────────────────────────────
+  # ── tree node renderer ────────────────────────────────────────────
 
   attr :node, :map, required: true
   attr :runtime, :string, required: true
@@ -689,7 +690,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         not @has_kids? && "list-none cursor-default"
       ]}>
         <span class="w-3 text-zinc-500">
-          <span :if={@has_kids?}>▾</span>
+          <span :if={@has_kids?}>&#9662;</span>
         </span>
         <span class="w-5 text-center">{stage_icon(@node.stage)}</span>
         <span class="font-mono text-zinc-200 w-44 truncate">{@node.stage}</span>
@@ -699,7 +700,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       </summary>
       <div :if={@has_kids? or @turn_prompt} class="pl-8 mt-1 mb-2 border-l border-zinc-800">
         <div :if={@turn_prompt} class="bg-zinc-800/60 border border-zinc-700 rounded px-3 py-2 mb-2">
-          <div class="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">👤 prompt</div>
+          <div class="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">&#128100; prompt</div>
           <pre class="whitespace-pre-wrap text-zinc-100 text-xs">{@turn_prompt}</pre>
         </div>
         <%= case @child_mode do %>
@@ -820,7 +821,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   defp block_row(%{block: %{kind: :init}} = assigns) do
     ~H"""
     <details class="text-zinc-400 text-xs">
-      <summary class="cursor-pointer">⊙ {@block.summary}</summary>
+      <summary class="cursor-pointer">&#8857; {@block.summary}</summary>
       <pre :if={@block[:body]} class="ml-4 mt-1 text-zinc-500 whitespace-pre-wrap">{@block.body}</pre>
     </details>
     """
@@ -829,7 +830,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   defp block_row(%{block: %{kind: :thinking}} = assigns) do
     ~H"""
     <div class="text-zinc-400 italic whitespace-pre-wrap pl-3 border-l border-zinc-700">
-      <span class="not-italic text-zinc-500 mr-1">🌀 thinking</span>
+      <span class="not-italic text-zinc-500 mr-1">&#127744; thinking</span>
       {@block.body}
     </div>
     """
@@ -839,11 +840,11 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     ~H"""
     <details class="border border-zinc-700 rounded px-2 py-1">
       <summary class="cursor-pointer text-zinc-200 flex items-center gap-2">
-        <span class="text-zinc-400">🔧</span>
+        <span class="text-zinc-400">&#128295;</span>
         <span class="font-semibold">{@block.name}</span>
         <span :if={@block[:summary]} class="text-zinc-500 truncate flex-1">{@block.summary}</span>
         <span :if={@block[:result] && @block.result.error?} class="text-rose-300 text-[10px] shrink-0">error</span>
-        <span :if={@block[:result] && not @block.result.error?} class="text-emerald-400 text-[10px] shrink-0">✓</span>
+        <span :if={@block[:result] && not @block.result.error?} class="text-emerald-400 text-[10px] shrink-0">&#10003;</span>
       </summary>
       <div class="mt-1 space-y-1">
         <div class="text-zinc-500 text-[10px] uppercase tracking-wider">input</div>
@@ -866,7 +867,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       "whitespace-pre-wrap pl-3 border-l border-zinc-700",
       if(@block[:error?], do: "text-rose-300", else: "text-zinc-300")
     ]}>
-      <span class="text-zinc-500 mr-1">→</span>{@block.body}
+      <span class="text-zinc-500 mr-1">&#8594;</span>{@block.body}
     </div>
     """
   end
@@ -880,7 +881,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   defp block_row(%{block: %{kind: :result}} = assigns) do
     ~H"""
     <details class="text-emerald-300">
-      <summary class="cursor-pointer">✓ {@block.body}</summary>
+      <summary class="cursor-pointer">&#10003; {@block.body}</summary>
       <pre :if={@block[:raw]} class="ml-4 mt-1 text-zinc-500 whitespace-pre-wrap text-xs">{@block.raw}</pre>
     </details>
     """
@@ -888,7 +889,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp block_row(%{block: %{kind: :error}} = assigns) do
     ~H"""
-    <div class="text-rose-300">✗ {@block.body}</div>
+    <div class="text-rose-300">&#10007; {@block.body}</div>
     """
   end
 
@@ -907,7 +908,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     """
   end
 
-  # ── event → blocks ─────────────────────────────────────────────────
+  # ── event → blocks ──────────────────────────────────────────────
 
   # Splits an event's `data` (which may be a stream-json chunk with N
   # lines) into a flat list of structured blocks. Each block is a map
@@ -1060,7 +1061,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   defp event_blocks("claude", %{"type" => "rate_limit_event"}), do: []
 
-  # ── codex (`codex exec --json`) ────────────────────────────────────
+  # ── codex (`codex exec --json`) ───────────────────────────────────────
   defp event_blocks("codex", %{"type" => "thread.started", "thread_id" => id}),
     do: [%{kind: :init, summary: "thread: #{id}"}]
 
@@ -1090,7 +1091,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   defp event_blocks("codex", %{"type" => "error", "message" => m}),
     do: [%{kind: :error, body: m}]
 
-  # ── gemini (`gemini --output-format stream-json`) ──────────────────
+  # ── gemini (`gemini --output-format stream-json`) ──────────────────────
   defp event_blocks("gemini", %{"type" => "init"} = ev) do
     summary =
       ["session started", ev["model"]]
@@ -1144,7 +1145,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     [%{kind: :result, body: bits, raw: Jason.encode!(ev, pretty: true)}]
   end
 
-  # ── opencode (`opencode run --format json`) ────────────────────────
+  # ── opencode (`opencode run --format json`) ──────────────────────────
   defp event_blocks("opencode", %{"type" => "step_start"}), do: []
 
   defp event_blocks("opencode", %{"type" => "text", "part" => %{"text" => t}})
@@ -1196,16 +1197,16 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
 
   # ── stage row helpers ──────────────────────────────────────────────
 
-  defp stage_icon("provision"), do: "✨"
-  defp stage_icon("checkpoint_restore"), do: "📦"
-  defp stage_icon("setup"), do: "🛠️"
-  defp stage_icon("packages"), do: "📥"
-  defp stage_icon("network"), do: "🌐"
-  defp stage_icon("clone"), do: "🪧"
-  defp stage_icon("turn"), do: "💬"
-  defp stage_icon("reattach"), do: "🔌"
-  defp stage_icon("terminate"), do: "🛑"
-  defp stage_icon(_), do: "•"
+  defp stage_icon("provision"), do: "&#10024;"
+  defp stage_icon("checkpoint_restore"), do: "&#128230;"
+  defp stage_icon("setup"), do: "&#128736;"
+  defp stage_icon("packages"), do: "&#128280;"
+  defp stage_icon("network"), do: "&#127760;"
+  defp stage_icon("clone"), do: "&#129319;"
+  defp stage_icon("turn"), do: "&#128172;"
+  defp stage_icon("reattach"), do: "&#128268;"
+  defp stage_icon("terminate"), do: "&#128721;"
+  defp stage_icon(_), do: "&bull;"
 
   defp stage_state_class("started"), do: "text-zinc-400"
   defp stage_state_class("done"), do: "text-emerald-400"
