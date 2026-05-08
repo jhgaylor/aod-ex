@@ -2,6 +2,10 @@
 
 Notable changes since the v1 functional baseline ("the four functional gaps closed"). Reverse-chronological — newest at top.
 
+## v0.2.11 — conversation list usability + keyboard shortcuts (2026-05-08)
+
+UI polish patch. Conversation list grew a Task column rendering the first prompt of each conversation (preloaded in one query via `first_turn_query/0`, truncated CSS-only with `table-fixed` so long prompts can't blow out the layout). Sidebar conversation links show first-prompt + metadata. New keyboard shortcuts with a cheatsheet modal; `SubmitOnCmdEnter` hook on the conversation send-prompt textarea. Docs fixes: stale `ravi-hq/agent-on-demand-ex` URLs replaced with `jhgaylor/aod-ex`; Skills page synced from `.claude/skills/aod`; `sync_content.sh` invoked via bash and `mkdir -p`s its target dirs.
+
 ## v0.2.10 — `aod shellenv` (2026-05-04)
 
 `aod shellenv --name <sprite-name>` recovers an instance's `AOD_BASE_URL` + `AOD_TOKEN` from its deployed `start.sh` and prints shell exports on stdout. Designed for `eval`:
