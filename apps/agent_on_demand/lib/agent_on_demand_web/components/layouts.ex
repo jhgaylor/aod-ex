@@ -87,11 +87,19 @@ defmodule AgentOnDemandWeb.Layouts do
     href = "/conversations/#{assigns.conv.id}"
     active = assigns.current == href
 
-    label =
+    first_turn = List.first(assigns.conv.turns)
+    task_label = if first_turn, do: truncate(first_turn.prompt, 60), else: nil
+
+    agent_name =
       cond do
         assigns.conv.agent && assigns.conv.agent.name -> assigns.conv.agent.name
-        true -> binary_part(assigns.conv.id, 0, 8)
+        true -> nil
       end
+
+    meta =
+      [agent_name, assigns.conv.runtime, sidebar_relative_time(assigns.conv.inserted_at)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
 
     {dot_class, status_label} =
       case assigns.conv.status do
@@ -105,23 +113,42 @@ defmodule AgentOnDemandWeb.Layouts do
       assign(assigns,
         href: href,
         active: active,
-        label: label,
+        task_label: task_label,
+        meta: meta,
         dot_class: dot_class,
         status_label: status_label
       )
 
     ~H"""
     <a href={@href} class={[
-      "flex items-center gap-2 rounded px-3 py-1.5 text-sm hover:bg-zinc-100 group",
+      "flex items-start gap-2 rounded px-3 py-2 text-sm hover:bg-zinc-100 group",
       @active && "bg-zinc-100 font-medium",
       not @active && "text-zinc-600"
     ]}>
-      <span class={["size-2 rounded-full shrink-0", @dot_class]} title={@status_label}/>
-      <span class="truncate flex-1">{@label}</span>
-      <span class="text-[10px] text-zinc-400 font-mono shrink-0 group-hover:text-zinc-500">
-        {String.slice(@conv.id, 0, 4)}
+      <span class={["size-2 rounded-full shrink-0 mt-1.5", @dot_class]} title={@status_label}/>
+      <span class="flex-1 min-w-0">
+        <span :if={@task_label} class="block truncate">{@task_label}</span>
+        <span :if={!@task_label} class="block truncate italic text-zinc-400">(no task yet)</span>
+        <span class="block text-[11px] text-zinc-400 truncate mt-0.5">{@meta}</span>
       </span>
     </a>
     """
+  end
+
+  defp truncate(nil, _max), do: nil
+  defp truncate(text, max) do
+    text = String.trim(text)
+    if String.length(text) > max, do: String.slice(text, 0, max) <> "\u2026", else: text
+  end
+
+  defp sidebar_relative_time(nil), do: nil
+  defp sidebar_relative_time(dt) do
+    secs = DateTime.diff(DateTime.utc_now(), dt)
+    cond do
+      secs < 60 -> "#{secs}s ago"
+      secs < 3600 -> "#{div(secs, 60)}m ago"
+      secs < 86_400 -> "#{div(secs, 3600)}h ago"
+      true -> "#{div(secs, 86_400)}d ago"
+    end
   end
 end
