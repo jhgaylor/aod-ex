@@ -13,8 +13,8 @@ You self-host AoD. There are two supported paths: a single-binary deploy via the
 The fastest path. Builds a static Linux binary, pushes it into a Sprite, registers it as a sprite-env service so it survives hibernation, and routes a public URL to it. Single command, your own AoD.
 
 ```bash
-git clone https://github.com/ravi-hq/agent-on-demand-ex
-cd agent-on-demand-ex
+git clone https://github.com/jhgaylor/aod-ex
+cd aod-ex
 
 mix deps.get
 mix aod.up

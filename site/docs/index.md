@@ -27,14 +27,14 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
     with Client() as aod:
         # 1. The shape of every sprite this agent runs in.
         env = aod.environments.create(
-            name="ravi-hq",
+            name="my-project",
             packages={"apt": ["jq", "ripgrep"]},
             repositories=[{
-                "url": "https://github.com/ravi-hq/agent-on-demand",
-                "mount_path": "/workspace/agent-on-demand",
+                "url": "https://github.com/my-org/my-repo",
+                "mount_path": "/workspace/my-repo",
                 "secret_key": "GITHUB_TOKEN",
             }],
-            setup_script="cd /workspace/agent-on-demand && uv sync",
+            setup_script="cd /workspace/my-repo && uv sync",
         )
         aod.environments.add_secret(env["id"], "GITHUB_TOKEN", "ghp_xxx")
 
@@ -74,14 +74,14 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
 
     // 1. Environment.
     const env = await aod.environments.create({
-      name: "ravi-hq",
+      name: "my-project",
       packages: { apt: ["jq", "ripgrep"] },
       repositories: [{
-        url: "https://github.com/ravi-hq/agent-on-demand",
-        mount_path: "/workspace/agent-on-demand",
+        url: "https://github.com/my-org/my-repo",
+        mount_path: "/workspace/my-repo",
         secret_key: "GITHUB_TOKEN",
       }],
-      setup_script: "cd /workspace/agent-on-demand && uv sync",
+      setup_script: "cd /workspace/my-repo && uv sync",
     });
     await aod.environments.addSecret(env.id, "GITHUB_TOKEN", "ghp_xxx");
 
@@ -118,14 +118,14 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
 
     // 1. Environment.
     env, _ := c.Environments.Create(ctx, map[string]any{
-        "name":     "ravi-hq",
+        "name":     "my-project",
         "packages": map[string]any{"apt": []string{"jq", "ripgrep"}},
         "repositories": []map[string]any{{
-            "url":        "https://github.com/ravi-hq/agent-on-demand",
-            "mount_path": "/workspace/agent-on-demand",
+            "url":        "https://github.com/my-org/my-repo",
+            "mount_path": "/workspace/my-repo",
             "secret_key": "GITHUB_TOKEN",
         }},
-        "setup_script": "cd /workspace/agent-on-demand && uv sync",
+        "setup_script": "cd /workspace/my-repo && uv sync",
     })
     c.Environments.AddSecret(ctx, env.ID, "GITHUB_TOKEN", "ghp_xxx")
 
@@ -162,14 +162,14 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
 
     # 1. Environment.
     {:ok, env} = AodClient.Environments.create(client,
-      name: "ravi-hq",
+      name: "my-project",
       packages: %{apt: ["jq", "ripgrep"]},
       repositories: [%{
-        url:        "https://github.com/ravi-hq/agent-on-demand",
-        mount_path: "/workspace/agent-on-demand",
+        url:        "https://github.com/my-org/my-repo",
+        mount_path: "/workspace/my-repo",
         secret_key: "GITHUB_TOKEN"
       }],
-      setup_script: "cd /workspace/agent-on-demand && uv sync"
+      setup_script: "cd /workspace/my-repo && uv sync"
     )
     AodClient.Environments.add_secret(client, env["id"], "GITHUB_TOKEN", "ghp_xxx")
 
@@ -208,14 +208,14 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
     ---
     apiVersion: aod/v1
     kind: Environment
-    metadata: { name: ravi-hq }
+    metadata: { name: my-project }
     spec:
       packages: { apt: [jq, ripgrep] }
       repositories:
-        - url: https://github.com/ravi-hq/agent-on-demand
-          mount_path: /workspace/agent-on-demand
+        - url: https://github.com/my-org/my-repo
+          mount_path: /workspace/my-repo
           secret_key: GITHUB_TOKEN
-      setup_script: cd /workspace/agent-on-demand && uv sync
+      setup_script: cd /workspace/my-repo && uv sync
 
     ---
     apiVersion: aod/v1
@@ -224,7 +224,7 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
     spec:
       runtime: claude
       model: anthropic/claude-sonnet-4-6
-      environment: ravi-hq
+      environment: my-project
       system: You are a senior reviewer. One high-value issue per PR, no nits.
       skills: [aod]
       mcp_servers:
@@ -241,7 +241,7 @@ A "code-reviewer" agent: a sandbox with the project repo cloned, jq + ripgrep in
 
     # Add the secret out-of-band (manifests don't carry secrets).
     ENV_ID=$(curl -s "$AOD_BASE_URL/api/environments" -H "Authorization: Bearer $AOD_TOKEN" \
-      | jq -r '.data[] | select(.name=="ravi-hq") | .id')
+      | jq -r '.data[] | select(.name=="my-project") | .id')
     curl -s -X POST "$AOD_BASE_URL/api/environments/$ENV_ID/secrets" \
       -H "Authorization: Bearer $AOD_TOKEN" -H "Content-Type: application/json" \
       -d '{"key":"GITHUB_TOKEN","value":"ghp_xxx"}'
@@ -330,6 +330,6 @@ It's **not** a chatbot frontend, an IDE, or a general-purpose VM provider. It's 
 
 [Install in 5 minutes →](install.md){ .md-button .md-button--primary }
 [Read the docs →](quickstart.md){ .md-button }
-[Browse the source →](https://github.com/ravi-hq/agent-on-demand-ex){ .md-button }
+[Browse the source →](https://github.com/jhgaylor/aod-ex){ .md-button }
 
 <small>Built on Phoenix + [Sprites](https://sprites.dev). MIT license. Single-tenant. Self-hosted.</small>

@@ -3,7 +3,7 @@
 Go client for the Agent on Demand API. Stdlib-only — no external deps.
 
 ```bash
-go get github.com/ravi-hq/agent-on-demand-ex/clients/go/aod
+go get github.com/jhgaylor/aod-ex/clients/go/aod
 ```
 
 ## Quick start

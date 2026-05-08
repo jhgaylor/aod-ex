@@ -492,7 +492,7 @@ Stop creating things via the API. Define a manifest, apply it. **CLI only** (the
 ---
 apiVersion: aod/v1
 kind: Environment
-metadata: { name: ravi-hq }
+metadata: { name: my-project }
 spec:
   packages:
     apt: [jq, ripgrep]
@@ -505,7 +505,7 @@ metadata: { name: docs-writer }
 spec:
   runtime: claude
   model: anthropic/claude-sonnet-4-6
-  environment: ravi-hq
+  environment: my-project
   system: |
     You are a documentation agent. Find one high-value doc fix, open a PR, stop.
   skills: [aod]
@@ -515,7 +515,7 @@ spec:
 
 ```bash
 ./aod apply -f aod.yml
-# env  +  ravi-hq
+# env  +  my-project
 # agent +  docs-writer
 ```
 
