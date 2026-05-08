@@ -38,7 +38,7 @@ defmodule AgentOnDemand.Conversations do
     Repo.all(
       from c in Conversation,
         order_by: [desc: c.inserted_at, desc: c.id],
-        preload: [:sandbox, :agent]
+        preload: [:sandbox, :agent, turns: ^first_turn_query()]
     )
   end
 
@@ -61,7 +61,7 @@ defmodule AgentOnDemand.Conversations do
           desc: c.inserted_at,
           desc: c.id
         ],
-        preload: [:agent]
+        preload: [:agent, turns: ^first_turn_query()]
     )
   end
 
@@ -306,6 +306,8 @@ defmodule AgentOnDemand.Conversations do
       {:error, _} = err -> err
     end
   end
+
+  defp first_turn_query, do: from(t in Turn, where: t.turn_number == 1)
 
   defp short_id, do: Ecto.UUID.generate() |> binary_part(0, 8)
 
