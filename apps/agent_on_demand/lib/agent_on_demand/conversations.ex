@@ -66,6 +66,18 @@ defmodule AgentOnDemand.Conversations do
   end
 
   @doc """
+  All conversations ordered by most recently active first (`updated_at desc`).
+  Used for the left-nav conversations list.
+  """
+  def list_conversations_by_activity do
+    Repo.all(
+      from c in Conversation,
+        order_by: [desc: c.updated_at, desc: c.id],
+        preload: [:agent, turns: ^first_turn_query()]
+    )
+  end
+
+  @doc """
   Conversations whose `ConversationServer` would have been running at the
   time of a clean BEAM stop: status `idle` or `running`, with a fully-
   provisioned (`ready`) sandbox.
