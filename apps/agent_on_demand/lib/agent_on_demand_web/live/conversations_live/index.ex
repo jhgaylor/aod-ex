@@ -103,53 +103,57 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
       </div>
 
       <table :if={@conversations != []} class="w-full text-sm bg-white rounded shadow border border-zinc-200 table-fixed">
-        <thead class="text-left text-zinc-500 border-b border-zinc-200">
+        <thead class="text-left text-xs uppercase tracking-wide text-zinc-500 border-b border-zinc-200">
           <tr>
-            <th class="px-4 py-2">Status</th>
-            <th class="px-4 py-2">Task</th>
-            <th class="px-4 py-2">Agent</th>
-            <th class="px-4 py-2">Runtime</th>
+            <th class="w-20 px-3 py-1.5 font-medium">Status</th>
+            <th class="px-3 py-1.5 font-medium">Task</th>
+            <th class="w-40 px-3 py-1.5 font-medium">Agent</th>
+            <th class="w-20 px-3 py-1.5 font-medium">Runtime</th>
             <th
-              class={["px-4 py-2 cursor-pointer select-none whitespace-nowrap", @sort_by == :inserted_at && "text-zinc-900 font-medium"]}
+              class={["w-24 px-3 py-1.5 font-medium cursor-pointer select-none whitespace-nowrap", @sort_by == :inserted_at && "text-zinc-900"]}
               phx-click="sort"
               phx-value-by="inserted_at"
             >Started {sort_arrow(@sort_by, @sort_dir, :inserted_at)}</th>
             <th
-              class={["px-4 py-2 cursor-pointer select-none whitespace-nowrap", @sort_by == :updated_at && "text-zinc-900 font-medium"]}
+              class={["w-28 px-3 py-1.5 font-medium cursor-pointer select-none whitespace-nowrap", @sort_by == :updated_at && "text-zinc-900"]}
               phx-click="sort"
               phx-value-by="updated_at"
             >Last active {sort_arrow(@sort_by, @sort_dir, :updated_at)}</th>
-            <th class="px-4 py-2"></th>
+            <th class="w-44 px-3 py-1.5"></th>
           </tr>
         </thead>
         <tbody>
-          <tr :for={c <- @conversations} class="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
-            <td class="px-4 py-2"><.status_badge status={c.status} /></td>
-            <td class="px-4 py-2 text-zinc-700">
+          <tr :for={c <- @conversations} class="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 align-top">
+            <td class="px-3 py-2"><.status_badge status={c.status} /></td>
+            <td class="px-3 py-2 text-zinc-700 leading-snug">
               <%= case first_prompt(c) do %>
                 <% nil -> %><span class="text-zinc-400">—</span>
-                <% prompt -> %><span class="block line-clamp-2" title={prompt}>{prompt}</span>
+                <% prompt -> %><div class="line-clamp-3" title={prompt}>{prompt}</div>
               <% end %>
             </td>
-            <td class="px-4 py-2">
-              <.link navigate={~p"/conversations/#{c.id}"} class="text-zinc-900 hover:underline font-medium">
+            <td class="px-3 py-2 truncate">
+              <.link navigate={~p"/conversations/#{c.id}"} class="block truncate text-zinc-900 hover:underline font-medium">
                 {agent_name(@agents_by_id, c.agent_id)}
               </.link>
               <div class="text-xs text-zinc-400 font-mono">{short(c.id)}</div>
             </td>
-            <td class="px-4 py-2 text-zinc-600">{c.runtime}</td>
-            <td class="px-4 py-2 text-zinc-500">{relative_time(c.inserted_at)}</td>
-            <td class="px-4 py-2 text-zinc-500">{relative_time(c.updated_at)}</td>
-            <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
-              <.btn_danger :if={c.status not in ["terminated", "completed", "failed"]}
-                phx-click="terminate" phx-value-id={c.id}
-                data-confirm="Terminate this conversation?">
-                Terminate
-              </.btn_danger>
-              <.btn_secondary phx-click="delete" phx-value-id={c.id}
-                data-confirm="Delete this conversation and all its turns? This cannot be undone.">
-                Delete
-              </.btn_secondary>
+            <td class="px-3 py-2 text-zinc-600 truncate">{c.runtime}</td>
+            <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{relative_time(c.inserted_at)}</td>
+            <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{relative_time(c.updated_at)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              <div class="inline-flex gap-1">
+                <.btn_danger :if={c.status not in ["terminated", "completed", "failed"]}
+                  class="!px-2 !py-1 !text-xs"
+                  phx-click="terminate" phx-value-id={c.id}
+                  data-confirm="Terminate this conversation?">
+                  Terminate
+                </.btn_danger>
+                <.btn_secondary class="!px-2 !py-1 !text-xs"
+                  phx-click="delete" phx-value-id={c.id}
+                  data-confirm="Delete this conversation and all its turns? This cannot be undone.">
+                  Delete
+                </.btn_secondary>
+              </div>
             </td>
           </tr>
         </tbody>
