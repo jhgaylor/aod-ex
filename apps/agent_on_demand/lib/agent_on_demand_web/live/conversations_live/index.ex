@@ -109,6 +109,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
             <th class="px-3 py-1.5 font-medium">Task</th>
             <th class="w-40 px-3 py-1.5 font-medium">Agent</th>
             <th class="w-20 px-3 py-1.5 font-medium">Runtime</th>
+            <th class="w-16 px-3 py-1.5 font-medium">Source</th>
             <th
               class={["w-24 px-3 py-1.5 font-medium cursor-pointer select-none whitespace-nowrap", @sort_by == :inserted_at && "text-zinc-900"]}
               phx-click="sort"
@@ -138,6 +139,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
               <div class="text-xs text-zinc-400 font-mono">{short(c.id)}</div>
             </td>
             <td class="px-3 py-2 text-zinc-600 truncate">{c.runtime}</td>
+            <td class="px-3 py-2"><.source_badge source={c.source} /></td>
             <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{relative_time(c.inserted_at)}</td>
             <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{relative_time(c.updated_at)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -200,4 +202,30 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
   end
 
   defp sort_arrow(_current, _dir, _field), do: "↕"
+
+  attr :source, :string, default: "api"
+
+  defp source_badge(%{source: "ui"} = assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+      UI
+    </span>
+    """
+  end
+
+  defp source_badge(%{source: "agent"} = assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+      Agent
+    </span>
+    """
+  end
+
+  defp source_badge(assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 border border-zinc-200">
+      API
+    </span>
+    """
+  end
 end
