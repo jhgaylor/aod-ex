@@ -318,10 +318,12 @@ defmodule AgentOnDemand.Conversations do
   persisted Conversation (preloaded).
 
   ## Required attrs
-    - `agent_id`        — agent to run
-    - `prompt`          — optional first prompt (sends turn 1 immediately)
-    - `sprite_name`     — optional override; defaults to "aod-conv-<short-id>"
-    - `vault_id`        — optional vault whose secrets override the env's
+    - `agent_id`              — agent to run
+    - `prompt`                — optional first prompt (sends turn 1 immediately)
+    - `sprite_name`           — optional override; defaults to "aod-conv-<short-id>"
+    - `vault_id`              — optional vault whose secrets override the env's
+    - `source`                — optional; one of "ui", "api", "agent" (default "api")
+    - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
   """
   def start_conversation(%{"agent_id" => agent_id} = attrs) do
     with %Agents.Agent{} = agent <- Agents.get_agent(agent_id) || {:error, :not_found},
@@ -339,7 +341,9 @@ defmodule AgentOnDemand.Conversations do
              agent_id: agent.id,
              vault_id: vault_id,
              runtime: agent.runtime,
-             status: "pending"
+             status: "pending",
+             source: attrs["source"] || "api",
+             parent_conversation_id: attrs["parent_conversation_id"]
            }) do
       {:ok, _pid} =
         Horde.DynamicSupervisor.start_child(
