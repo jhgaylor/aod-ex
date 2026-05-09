@@ -108,12 +108,10 @@ defmodule AgentOnDemand.Conversations do
     SELECT id, source, status, parent_id FROM tree
     """
 
-    %{rows: rows, columns: columns} = Repo.query!(sql, [conversation_id])
+    %{rows: rows} = Repo.query!(sql, [conversation_id])
 
-    Enum.map(rows, fn row ->
-      columns
-      |> Enum.zip(row)
-      |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+    Enum.map(rows, fn [id, source, status, parent_id] ->
+      %{id: id, source: source, status: status, parent_id: parent_id}
     end)
   end
 

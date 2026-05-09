@@ -98,6 +98,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     {:noreply, assign(socket, :graph, Conversations.get_conversation_tree(id))}
   end
 
+  @impl true
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
@@ -363,6 +364,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     <div
       id="conversation-graph"
       phx-hook="ConversationGraph"
+      phx-update="ignore"
       data-graph={Jason.encode!(@graph)}
       data-current-id={@conv_id}
       class="w-full h-40 bg-zinc-900 border-b border-zinc-800"

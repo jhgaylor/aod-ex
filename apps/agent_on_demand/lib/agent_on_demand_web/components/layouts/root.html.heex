@@ -157,6 +157,8 @@
               const hier = d3.hierarchy(root);
               const treeLayout = d3.tree().size([innerW, innerH]);
               treeLayout(hier);
+              // Ensure nodes aren't clipped at top edge
+              hier.descendants().forEach(d => { if (d.y < 13) d.y = 13; });
 
               this.el.innerHTML = "";
               const svg = d3.select(this.el)
