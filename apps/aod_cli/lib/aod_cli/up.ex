@@ -134,15 +134,13 @@ defmodule AodCli.Up do
   # signed URL doesn't need GitHub auth (GitHub embedded the auth
   # in the query string).
   defp resolve_release_signed_url(tag) do
-    token = resolve_github_token()
-    asset_id = lookup_asset_id(tag, token)
+    asset_id = lookup_asset_id(tag)
 
     url = "https://api.github.com/repos/#{@github_repo}/releases/assets/#{asset_id}"
 
     headers = [
       {"accept", "application/octet-stream"},
       {"x-github-api-version", "2022-11-28"}
-      | auth_header(token)
     ]
 
     # `redirect: false` — capture the 302 to objects.githubusercontent.com
@@ -159,23 +157,19 @@ defmodule AodCli.Up do
         end
 
       {:ok, %{status: status}} ->
-        AodCli.die(
-          "could not resolve signed URL for #{tag}: GET #{url} returned HTTP #{status} " <>
-            github_auth_hint(token, status)
-        )
+        AodCli.die("could not resolve signed URL for #{tag}: GET #{url} returned HTTP #{status}")
 
       {:error, reason} ->
         AodCli.die("could not resolve signed URL for #{tag}: #{inspect(reason)}")
     end
   end
 
-  defp lookup_asset_id(tag, token) do
+  defp lookup_asset_id(tag) do
     url = "https://api.github.com/repos/#{@github_repo}/releases/tags/#{tag}"
 
     headers = [
       {"accept", "application/vnd.github+json"},
       {"x-github-api-version", "2022-11-28"}
-      | auth_header(token)
     ]
 
     case Req.get(url, headers: headers, redirect: true, receive_timeout: 30_000) do
@@ -196,42 +190,13 @@ defmodule AodCli.Up do
       {:ok, %{status: status}} ->
         AodCli.die(
           "could not look up release #{tag}: GET #{url} returned HTTP #{status} " <>
-            github_auth_hint(token, status)
+            "(does the tag exist with an `#{@release_asset_name}` asset?)"
         )
 
       {:error, reason} ->
         AodCli.die("could not look up release #{tag}: #{inspect(reason)}")
     end
   end
-
-  defp resolve_github_token do
-    case System.get_env("GITHUB_TOKEN") do
-      token when is_binary(token) and token != "" ->
-        token
-
-      _ ->
-        case System.find_executable("gh") do
-          nil ->
-            nil
-
-          gh ->
-            case System.cmd(gh, ["auth", "token"], stderr_to_stdout: true) do
-              {out, 0} -> String.trim(out)
-              _ -> nil
-            end
-        end
-    end
-  end
-
-  defp auth_header(nil), do: []
-  defp auth_header(""), do: []
-  defp auth_header(token), do: [{"authorization", "Bearer " <> token}]
-
-  defp github_auth_hint(nil, status) when status in [401, 403, 404] do
-    "(private repo? export GITHUB_TOKEN=... or run `gh auth login` so we can pick the token up)"
-  end
-
-  defp github_auth_hint(_, _), do: "(does the tag exist with an `#{@release_asset_name}` asset?)"
 
   # ── deploy ───────────────────────────────────────────────────────
 
