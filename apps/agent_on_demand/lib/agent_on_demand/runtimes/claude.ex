@@ -20,14 +20,14 @@ defmodule AgentOnDemand.Runtimes.Claude do
   def skills_sh_agent, do: "claude-code"
 
   @impl true
-  def build_command(_agent, _prompt, mode, runtime_session_id, _opts) do
+  def build_command(_agent, _prompt, mode, runtime_session_id, opts) do
     if mode == :continue and is_nil(runtime_session_id) do
       raise ArgumentError, "mode=:continue requires runtime_session_id"
     end
 
     flag = if mode == :continue, do: "--resume", else: "--session-id"
 
-    args = [
+    base_args = [
       "--dangerously-skip-permissions",
       "--print",
       "--verbose",
@@ -37,7 +37,12 @@ defmodule AgentOnDemand.Runtimes.Claude do
       runtime_session_id || ""
     ]
 
-    {"claude", args, []}
+    image_args =
+      opts
+      |> Keyword.get(:images, [])
+      |> Enum.flat_map(fn {path, _mt} -> ["--image", path] end)
+
+    {"claude", base_args ++ image_args, []}
   end
 
   @impl true
