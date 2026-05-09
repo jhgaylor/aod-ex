@@ -75,16 +75,12 @@ defmodule AgentOnDemandWeb.ConversationController do
   def create(conn, params) do
     images = decode_images(params["images"])
 
-    parent_id =
+    parent_header =
       conn
       |> get_req_header("x-aod-parent-conversation-id")
       |> List.first()
 
-    {source, parent_id} =
-      case parent_id do
-        id when is_binary(id) and byte_size(id) > 0 -> {"agent", id}
-        _ -> {"api", nil}
-      end
+    {source, parent_id} = infer_provenance(parent_header)
 
     params =
       params
@@ -96,6 +92,22 @@ defmodule AgentOnDemandWeb.ConversationController do
       conn
       |> put_status(:created)
       |> render(:show, conversation: conv)
+    end
+  end
+
+  @doc """
+  Infer the conversation's `source` and `parent_conversation_id` from
+  the `X-AoD-Parent-Conversation-Id` header value (or `nil` if absent).
+
+  Pure function so the inference logic can be unit-tested without
+  going through the full `Conversations.start_conversation/1` pipeline
+  (which provisions a real Sprite).
+  """
+  @spec infer_provenance(String.t() | nil) :: {String.t(), String.t() | nil}
+  def infer_provenance(parent_header) do
+    case parent_header do
+      id when is_binary(id) and byte_size(id) > 0 -> {"agent", id}
+      _ -> {"api", nil}
     end
   end
 

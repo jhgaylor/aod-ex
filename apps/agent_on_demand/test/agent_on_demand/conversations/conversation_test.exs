@@ -3,9 +3,14 @@ defmodule AgentOnDemand.Conversations.ConversationTest do
 
   alias AgentOnDemand.Conversations.Conversation
 
+  # Changeset validates :runtime, :status, :sandbox_id. The schema defaults
+  # :status to "pending", so a sandbox_id is the only thing the test
+  # fixture needs to add. The UUID doesn't need to exist in the DB —
+  # validate_required only checks presence.
   @valid_attrs %{
     "prompt" => "hello",
-    "runtime" => "claude"
+    "runtime" => "claude",
+    "sandbox_id" => "11111111-1111-1111-1111-111111111111"
   }
 
   describe "changeset/2 — source" do
