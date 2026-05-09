@@ -96,6 +96,7 @@ defmodule AgentOnDemandWeb.Router do
       post "/terminate", ConversationController, :terminate, as: :terminate
       get "/stream", ConversationController, :stream, as: :stream
       get "/turns", ConversationController, :turns, as: :turns
+      get "/turns/:turn_id/images/:position", TurnImageController, :show, as: :turn_image
     end
   end
 
