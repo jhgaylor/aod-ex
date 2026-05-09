@@ -29,6 +29,10 @@ jobs:
     permissions:
       # Push commit + tag back to main.
       contents: write
+      # Dispatch release.yml after the tag push (the tag push itself
+      # doesn't trigger release.yml because tags pushed by GITHUB_TOKEN
+      # don't fire downstream workflows — anti-recursion safeguard).
+      actions: write
 
     steps:
       - uses: actions/checkout@v4
@@ -87,9 +91,23 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add mix.exs apps/agent_on_demand/mix.exs apps/aod_cli/mix.exs
           # `[skip ci]` keeps the bump commit from triggering the regular
-          # CI workflow on its own — the tag push triggers release.yml,
-          # which is the only run that matters for a release.
+          # CI workflow on its own. The release.yml dispatch happens in
+          # the next step, since GITHUB_TOKEN tag pushes don't fire
+          # downstream workflows.
           git commit -m "chore(release): ${TAG} [skip ci]"
           git tag -a "${TAG}" -m "Release ${TAG}"
           git push origin HEAD:main
           git push origin "${TAG}"
+
+      - name: Dispatch release.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Tag push above ran under GITHUB_TOKEN, so release.yml's
+          # `on: push: tags:` trigger is suppressed. Dispatch it
+          # explicitly via workflow_dispatch (which release.yml supports
+          # for exactly this case).
+          gh workflow run release.yml --ref "${TAG}" -f tag="${TAG}"
+          echo "Dispatched release.yml for ${TAG}"
