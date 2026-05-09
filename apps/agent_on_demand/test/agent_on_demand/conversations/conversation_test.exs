@@ -53,4 +53,86 @@ defmodule AgentOnDemand.Conversations.ConversationTest do
       assert get_field(changeset, :parent_conversation_id) == parent_id
     end
   end
+
+  alias AgentOnDemand.Conversations
+  alias AgentOnDemand.Repo
+
+  describe "get_conversation_tree/1" do
+    defp make_sandbox do
+      {:ok, sandbox} = Conversations.create_sandbox(%{sprite_name: "test-#{System.unique_integer()}", status: "pending"})
+      sandbox
+    end
+
+    defp make_conv(sandbox_id, attrs \\ %{}) do
+      %Conversation{}
+      |> Conversation.changeset(Map.merge(%{
+        sandbox_id: sandbox_id,
+        runtime: "claude",
+        status: "pending",
+        source: "api"
+      }, attrs))
+      |> Repo.insert!()
+    end
+
+    test "returns a single node when conversation has no parent or children" do
+      sb = make_sandbox()
+      root = make_conv(sb.id, %{source: "ui"})
+
+      tree = Conversations.get_conversation_tree(root.id)
+
+      assert length(tree) == 1
+      [node] = tree
+      assert node.id == root.id
+      assert node.source == "ui"
+      assert is_nil(node.parent_id)
+    end
+
+    test "returns all descendants when called from root" do
+      sb = make_sandbox()
+      root = make_conv(sb.id, %{source: "ui"})
+      child = make_conv(sb.id, %{source: "agent", parent_conversation_id: root.id})
+      grandchild = make_conv(sb.id, %{source: "agent", parent_conversation_id: child.id})
+
+      tree = Conversations.get_conversation_tree(root.id)
+      ids = Enum.map(tree, & &1.id)
+
+      assert length(tree) == 3
+      assert root.id in ids
+      assert child.id in ids
+      assert grandchild.id in ids
+    end
+
+    test "walks up to root and returns full tree when called from a child node" do
+      sb = make_sandbox()
+      root = make_conv(sb.id, %{source: "ui"})
+      child = make_conv(sb.id, %{source: "agent", parent_conversation_id: root.id})
+      grandchild = make_conv(sb.id, %{source: "agent", parent_conversation_id: child.id})
+
+      # Call from grandchild — should still get all 3 nodes
+      tree = Conversations.get_conversation_tree(grandchild.id)
+      ids = Enum.map(tree, & &1.id)
+
+      assert length(tree) == 3
+      assert root.id in ids
+      assert child.id in ids
+      assert grandchild.id in ids
+    end
+
+    test "each node map has expected keys" do
+      sb = make_sandbox()
+      root = make_conv(sb.id)
+
+      [node] = Conversations.get_conversation_tree(root.id)
+
+      assert Map.has_key?(node, :id)
+      assert Map.has_key?(node, :source)
+      assert Map.has_key?(node, :status)
+      assert Map.has_key?(node, :parent_id)
+    end
+
+    test "returns empty list for unknown conversation_id" do
+      tree = Conversations.get_conversation_tree(Ecto.UUID.generate())
+      assert tree == []
+    end
+  end
 end

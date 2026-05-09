@@ -12,6 +12,7 @@
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/phoenix@1.7.20/priv/static/phoenix.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/phoenix_live_view@1.1.28/priv/static/phoenix_live_view.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script defer>
       document.addEventListener("DOMContentLoaded", () => {
         const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
@@ -124,6 +125,103 @@
                   this.pushEvent("images_selected", { images: images });
                 });
               });
+            }
+          },
+          ConversationGraph: {
+            mounted() { this.renderGraph(); },
+            updated() { this.renderGraph(); },
+            renderGraph() {
+              const nodes = JSON.parse(this.el.dataset.graph || "[]");
+              const currentId = this.el.dataset.currentId;
+              if (!nodes || nodes.length === 0) return;
+
+              // Build id → node map with children arrays
+              const byId = {};
+              nodes.forEach(n => { byId[n.id] = { ...n, children: [] }; });
+              let root = null;
+              nodes.forEach(n => {
+                if (n.parent_id && byId[n.parent_id]) {
+                  byId[n.parent_id].children.push(byId[n.id]);
+                } else if (!n.parent_id) {
+                  root = byId[n.id];
+                }
+              });
+              if (!root) return;
+
+              const W = this.el.offsetWidth || 600;
+              const H = this.el.offsetHeight || 150;
+              const padding = { top: 20, right: 50, bottom: 10, left: 50 };
+              const innerW = W - padding.left - padding.right;
+              const innerH = H - padding.top - padding.bottom;
+
+              const hier = d3.hierarchy(root);
+              const treeLayout = d3.tree().size([innerW, innerH]);
+              treeLayout(hier);
+              // Ensure nodes aren't clipped at top edge
+              hier.descendants().forEach(d => { if (d.y < 13) d.y = 13; });
+
+              this.el.innerHTML = "";
+              const svg = d3.select(this.el)
+                .append("svg")
+                .attr("width", "100%")
+                .attr("height", H)
+                .attr("viewBox", `0 0 ${W} ${H}`)
+                .attr("preserveAspectRatio", "xMidYMid meet");
+
+              // Glow filter for the current node
+              const defs = svg.append("defs");
+              const filt = defs.append("filter").attr("id", "cg-glow");
+              filt.append("feGaussianBlur").attr("in", "SourceGraphic").attr("stdDeviation", "3").attr("result", "blur");
+              const merge = filt.append("feMerge");
+              merge.append("feMergeNode").attr("in", "blur");
+              merge.append("feMergeNode").attr("in", "SourceGraphic");
+
+              const g = svg.append("g")
+                .attr("transform", `translate(${padding.left},${padding.top})`);
+
+              // Draw edges
+              g.selectAll(".cg-link")
+                .data(hier.links())
+                .join("path")
+                .attr("fill", "none")
+                .attr("stroke", "#334155")
+                .attr("stroke-width", 1.5)
+                .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+
+              // Draw nodes
+              const NW = 90, NH = 26;
+              const node = g.selectAll(".cg-node")
+                .data(hier.descendants())
+                .join("g")
+                .attr("transform", d => `translate(${d.x},${d.y})`)
+                .style("cursor", "pointer")
+                .on("click", (_e, d) => { window.location.href = `/conversations/${d.data.id}`; });
+
+              node.append("rect")
+                .attr("x", -NW / 2).attr("y", -NH / 2)
+                .attr("width", NW).attr("height", NH)
+                .attr("rx", 4)
+                .attr("fill", d => {
+                  if (d.data.source === "ui")    return "#172554";
+                  if (d.data.source === "agent") return "#451a03";
+                  return "#1c1917";
+                })
+                .attr("stroke", d => {
+                  if (d.data.id === currentId)   return "#38bdf8";
+                  if (d.data.source === "ui")    return "#3b82f6";
+                  if (d.data.source === "agent") return "#d97706";
+                  return "#52525b";
+                })
+                .attr("stroke-width", d => d.data.id === currentId ? 2 : 1)
+                .attr("filter", d => d.data.id === currentId ? "url(#cg-glow)" : null);
+
+              node.append("text")
+                .attr("text-anchor", "middle")
+                .attr("dy", "0.35em")
+                .attr("fill", d => d.data.id === currentId ? "#e2e8f0" : "#94a3b8")
+                .attr("font-size", "10px")
+                .attr("font-family", "ui-monospace, monospace")
+                .text(d => d.data.id.substring(0, 8));
             }
           }
         };

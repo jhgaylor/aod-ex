@@ -78,6 +78,44 @@ defmodule AgentOnDemand.Conversations do
   end
 
   @doc """
+  Returns all conversations in the same spawn tree as `conversation_id`,
+  including ancestors up to the root and all their descendants.
+
+  Each entry is a map with keys: :id, :source, :status, :parent_id
+
+  Returns `[]` when `conversation_id` does not exist.
+  """
+  def get_conversation_tree(conversation_id) do
+    sql = """
+    WITH RECURSIVE
+    ancestors(id, parent_conversation_id) AS (
+      SELECT id, parent_conversation_id FROM conversations WHERE id = ?
+      UNION ALL
+      SELECT c.id, c.parent_conversation_id FROM conversations c
+      INNER JOIN ancestors a ON c.id = a.parent_conversation_id
+    ),
+    root_row AS (
+      SELECT id FROM ancestors WHERE parent_conversation_id IS NULL LIMIT 1
+    ),
+    tree(id, source, status, parent_id) AS (
+      SELECT c.id, c.source, c.status, c.parent_conversation_id
+      FROM conversations c, root_row r WHERE c.id = r.id
+      UNION ALL
+      SELECT c.id, c.source, c.status, c.parent_conversation_id
+      FROM conversations c
+      INNER JOIN tree t ON c.parent_conversation_id = t.id
+    )
+    SELECT id, source, status, parent_id FROM tree
+    """
+
+    %{rows: rows} = Repo.query!(sql, [conversation_id])
+
+    Enum.map(rows, fn [id, source, status, parent_id] ->
+      %{id: id, source: source, status: status, parent_id: parent_id}
+    end)
+  end
+
+  @doc """
   Conversations whose `ConversationServer` would have been running at the
   time of a clean BEAM stop: status `idle` or `running`, with a fully-
   provisioned (`ready`) sandbox.
@@ -357,11 +395,43 @@ defmodule AgentOnDemand.Conversations do
            ]}
         )
 
-      {:ok, get_conversation!(conv.id)}
+      result = get_conversation!(conv.id)
+
+      if result.parent_conversation_id do
+        root_id = get_root_conversation_id(result.id)
+        broadcast_graph_update(root_id)
+      end
+
+      {:ok, result}
     else
       nil -> {:error, :not_found}
       {:error, _} = err -> err
     end
+  end
+
+  defp get_root_conversation_id(conversation_id) do
+    sql = """
+    WITH RECURSIVE ancestors(id, parent_conversation_id) AS (
+      SELECT id, parent_conversation_id FROM conversations WHERE id = ?
+      UNION ALL
+      SELECT c.id, c.parent_conversation_id FROM conversations c
+      INNER JOIN ancestors a ON c.id = a.parent_conversation_id
+    )
+    SELECT id FROM ancestors WHERE parent_conversation_id IS NULL LIMIT 1
+    """
+
+    case Repo.query!(sql, [conversation_id]) do
+      %{rows: [[root_id]]} -> root_id
+      _ -> conversation_id
+    end
+  end
+
+  defp broadcast_graph_update(root_id) do
+    Phoenix.PubSub.broadcast(
+      AgentOnDemand.PubSub,
+      "conversations:graph:#{root_id}",
+      {:graph_updated}
+    )
   end
 
   defp first_turn_query, do: from(t in Turn, where: t.turn_number == 1)

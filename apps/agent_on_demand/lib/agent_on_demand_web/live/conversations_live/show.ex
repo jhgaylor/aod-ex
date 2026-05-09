@@ -11,8 +11,13 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         {:ok, socket |> put_flash(:error, "Conversation not found") |> push_navigate(to: ~p"/")}
 
       conv ->
+        graph = Conversations.get_conversation_tree(id)
+
         if connected?(socket) do
           Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conv:#{id}")
+          root_node = Enum.find(graph, fn n -> is_nil(n.parent_id) end)
+          root_id = if root_node, do: root_node.id, else: id
+          Phoenix.PubSub.subscribe(AgentOnDemand.PubSub, "conversations:graph:#{root_id}")
         end
 
         events = Conversations.list_log_events(id) |> annotate_durations()
@@ -26,7 +31,8 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
          |> assign(:visible_streams, MapSet.new(["stdout", "stderr", "stage"]))
          |> assign(:view_mode, :pretty)
          |> assign(:prompt, "")
-         |> assign(:pending_images, [])}
+         |> assign(:pending_images, [])
+         |> assign(:graph, graph)}
     end
   end
 
@@ -86,6 +92,13 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     end
   end
 
+  @impl true
+  def handle_info({:graph_updated}, socket) do
+    id = socket.assigns.conv.id
+    {:noreply, assign(socket, :graph, Conversations.get_conversation_tree(id))}
+  end
+
+  @impl true
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
@@ -268,6 +281,8 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </div>
 
+      <.conversation_graph graph={@graph} conv_id={@conv.id} />
+
       <div class="flex items-center justify-between gap-2 text-xs">
         <div class={["flex items-center gap-2", @view_mode == :chat && "invisible"]}>
           <span class="text-zinc-500">show:</span>
@@ -338,6 +353,22 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         </div>
       </form>
     </div>
+    """
+  end
+
+  attr :graph, :any, required: true
+  attr :conv_id, :string, required: true
+
+  defp conversation_graph(assigns) do
+    ~H"""
+    <div
+      id="conversation-graph"
+      phx-hook="ConversationGraph"
+      phx-update="ignore"
+      data-graph={Jason.encode!(@graph)}
+      data-current-id={@conv_id}
+      class="w-full h-40 bg-zinc-900 border-b border-zinc-800"
+    />
     """
   end
 
