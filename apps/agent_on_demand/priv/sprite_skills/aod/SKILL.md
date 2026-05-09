@@ -29,6 +29,7 @@ ids=$(printf '%s\n' "${prompts[@]}" | xargs -n1 -P8 -I{} sh -c '
   curl -s -X POST "$1/api/conversations" \
     -H "Authorization: Bearer $2" \
     -H "Content-Type: application/json" \
+    -H "X-AoD-Parent-Conversation-Id: $AOD_CONVERSATION_ID" \
     -d "$(jq -n --arg a "$3" --arg p "$4" "{agent_id:\$a, prompt:\$p}")" \
   | jq -r .data.id
 ' _ "$AOD_BASE_URL" "$AOD_TOKEN" "$AGENT_ID" {})
@@ -62,7 +63,9 @@ AGENT_ID=...
 PROMPT=...
 
 CONV=$(curl -s -X POST "$AOD_BASE_URL/api/conversations" \
-  -H "Authorization: Bearer $AOD_TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AOD_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-AoD-Parent-Conversation-Id: $AOD_CONVERSATION_ID" \
   -d "$(jq -n --arg a "$AGENT_ID" --arg p "$PROMPT" '{agent_id:$a, prompt:$p}')" \
   | jq -r .data.id)
 
@@ -140,6 +143,7 @@ curl -s "$AOD_BASE_URL/api/vaults" -H "Authorization: Bearer $AOD_TOKEN" \
 # Spawn with a specific vault layered on top of the env's secrets:
 curl -s -X POST "$AOD_BASE_URL/api/conversations" \
   -H "Authorization: Bearer $AOD_TOKEN" -H "Content-Type: application/json" \
+  -H "X-AoD-Parent-Conversation-Id: $AOD_CONVERSATION_ID" \
   -d "$(jq -n --arg a "$AGENT_ID" --arg v "$VAULT_ID" --arg p "$PROMPT" \
         '{agent_id:$a, vault_id:$v, prompt:$p}')"
 ```
@@ -176,3 +180,4 @@ curl -s -X POST "$AOD_BASE_URL/api/conversations/$CONV/terminate" \
 - **Costs add up.** Every conversation provisions a real sandbox.
 - **Same `$AOD_TOKEN`.** All spawned agents share the single-tenant admin token. Don't leak it outside the sprite.
 - **API path is `/api/...`.** The bare `/conversations` redirects (302 → /login) for non-browser requests.
+- **Provenance is automatic.** `AOD_CONVERSATION_ID` is always present in your sprite's environment. Every `POST /api/conversations` call that includes `X-AoD-Parent-Conversation-Id: $AOD_CONVERSATION_ID` records this conversation as the parent, letting the operator reconstruct the full spawn chain.
