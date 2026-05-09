@@ -1,3 +1,217 @@
+# Agents Faceted Filter Sidepanel Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add a persistent left-side filter panel to the agents list page with faceted filtering by runtime, environment, skills, and MCP server presence, plus a name search input.
+
+**Architecture:** `Agents.list_agents/1` gains an optional keyword-list `filters` parameter that builds a dynamic Ecto query; facet counts are computed in-memory from the full unfiltered list on mount. The LiveView tracks filter state as socket assigns and re-queries on every `phx-change` event from a filter form in the sidebar. The page layout becomes a two-column flex: narrow sidebar left, existing table right.
+
+**Tech Stack:** Elixir, Phoenix LiveView, Ecto, SQLite3 (via `ecto_sqlite3`), TailwindCSS, Heex templates
+
+---
+
+## File Map
+
+| File | Change |
+|---|---|
+| `apps/agent_on_demand/lib/agent_on_demand/agents.ex` | Add `list_agents/1` (default arg keeps `list_agents/0` working), add private filter helpers |
+| `apps/agent_on_demand/lib/agent_on_demand_web/live/agents_live/index.ex` | Add filter assigns, filter event handlers, restructured two-column render |
+| `apps/agent_on_demand/test/agent_on_demand/agents_test.exs` | New: tests for `list_agents/1` filter behaviour |
+
+---
+
+## Task 1: Extend `Agents.list_agents/1` with dynamic filtering
+
+**Files:**
+- Modify: `apps/agent_on_demand/lib/agent_on_demand/agents.ex`
+- Create: `apps/agent_on_demand/test/agent_on_demand/agents_test.exs`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `apps/agent_on_demand/test/agent_on_demand/agents_test.exs`:
+
+```elixir
+defmodule AgentOnDemand.AgentsTest do
+  use AgentOnDemand.DataCase, async: true
+
+  alias AgentOnDemand.Agents
+
+  defp create_agent(attrs) do
+    defaults = %{
+      "name" => "agent-#{System.unique_integer([:positive])}",
+      "model" => "anthropic/claude-sonnet-4-6",
+      "runtime" => "claude"
+    }
+
+    {:ok, agent} = Agents.create_agent(Map.merge(defaults, attrs))
+    agent
+  end
+
+  describe "list_agents/1" do
+    test "returns all agents when no filters" do
+      a = create_agent(%{})
+      b = create_agent(%{})
+      ids = Agents.list_agents() |> Enum.map(& &1.id)
+      assert a.id in ids
+      assert b.id in ids
+    end
+
+    test "filters by search (case-insensitive substring on name)" do
+      _other = create_agent(%{"name" => "zz-unrelated"})
+      match = create_agent(%{"name" => "My Cool Agent"})
+
+      results = Agents.list_agents(search: "cool")
+      assert Enum.any?(results, & &1.id == match.id)
+      refute Enum.any?(results, & &1.name == "zz-unrelated")
+    end
+
+    test "filters by runtime" do
+      claude = create_agent(%{"runtime" => "claude"})
+      codex  = create_agent(%{"runtime" => "codex"})
+
+      results = Agents.list_agents(runtimes: ["claude"])
+      assert Enum.any?(results, & &1.id == claude.id)
+      refute Enum.any?(results, & &1.id == codex.id)
+    end
+
+    test "returns all when runtimes filter is empty list" do
+      a = create_agent(%{})
+      results = Agents.list_agents(runtimes: [])
+      assert Enum.any?(results, & &1.id == a.id)
+    end
+
+    test "filters to agents with no environment when env_ids includes 'none'" do
+      no_env = create_agent(%{})
+      results = Agents.list_agents(env_ids: ["none"])
+      assert Enum.any?(results, & &1.id == no_env.id)
+    end
+
+    test "filters by has_skills" do
+      with_skills = create_agent(%{
+        "name" => "skilled-#{System.unique_integer([:positive])}",
+        "skills" => [%{"name" => "test", "content" => "# SKILL\n"}]
+      })
+      bare = create_agent(%{"name" => "bare-#{System.unique_integer([:positive])}"})
+
+      results = Agents.list_agents(has_skills: true)
+      assert Enum.any?(results, & &1.id == with_skills.id)
+      refute Enum.any?(results, & &1.id == bare.id)
+    end
+
+    test "filters by has_mcp" do
+      with_mcp = create_agent(%{
+        "name" => "mcp-#{System.unique_integer([:positive])}",
+        "mcp_servers" => %{"my_server" => %{"command" => "npx foo"}}
+      })
+      bare = create_agent(%{"name" => "nomcp-#{System.unique_integer([:positive])}"})
+
+      results = Agents.list_agents(has_mcp: true)
+      assert Enum.any?(results, & &1.id == with_mcp.id)
+      refute Enum.any?(results, & &1.id == bare.id)
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run tests to confirm they fail as expected**
+
+```bash
+cd apps/agent_on_demand && mix test test/agent_on_demand/agents_test.exs
+```
+
+Expected: compile errors or test failures — `list_agents/1` with keyword args doesn't exist yet.
+
+- [ ] **Step 3: Implement `list_agents/1` with filter helpers**
+
+Replace the existing `list_agents/0` in `apps/agent_on_demand/lib/agent_on_demand/agents.ex`:
+
+```elixir
+def list_agents(filters \\ []) do
+  from(a in Agent, order_by: [desc: a.inserted_at, desc: a.id], preload: [:environment])
+  |> apply_search(Keyword.get(filters, :search, ""))
+  |> apply_runtimes(Keyword.get(filters, :runtimes, []))
+  |> apply_env_ids(Keyword.get(filters, :env_ids, []))
+  |> apply_has_skills(Keyword.get(filters, :has_skills, false))
+  |> apply_has_mcp(Keyword.get(filters, :has_mcp, false))
+  |> Repo.all()
+end
+```
+
+Add private filter helpers at the bottom of the module (before the closing `end`):
+
+```elixir
+defp apply_search(query, ""), do: query
+
+defp apply_search(query, search) do
+  term = "%#{search}%"
+  from a in query, where: like(a.name, ^term)
+end
+
+defp apply_runtimes(query, []), do: query
+
+defp apply_runtimes(query, runtimes) do
+  from a in query, where: a.runtime in ^runtimes
+end
+
+defp apply_env_ids(query, []), do: query
+
+defp apply_env_ids(query, env_ids) do
+  {none, real_ids} = Enum.split_with(env_ids, &(&1 == "none"))
+
+  cond do
+    none != [] and real_ids != [] ->
+      from a in query,
+        where: is_nil(a.environment_id) or a.environment_id in ^real_ids
+
+    none != [] ->
+      from a in query, where: is_nil(a.environment_id)
+
+    true ->
+      from a in query, where: a.environment_id in ^real_ids
+  end
+end
+
+defp apply_has_skills(query, false), do: query
+
+defp apply_has_skills(query, true) do
+  from a in query, where: fragment("json_array_length(?)", a.skills) > 0
+end
+
+defp apply_has_mcp(query, false), do: query
+
+defp apply_has_mcp(query, true) do
+  from a in query, where: fragment("? != '{}'", a.mcp_servers)
+end
+```
+
+- [ ] **Step 4: Run tests to confirm they pass**
+
+```bash
+cd apps/agent_on_demand && mix test test/agent_on_demand/agents_test.exs
+```
+
+Expected: all tests in `AgentOnDemand.AgentsTest` pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/agent_on_demand/lib/agent_on_demand/agents.ex \
+        apps/agent_on_demand/test/agent_on_demand/agents_test.exs
+git commit -m "feat: add dynamic filtering to Agents.list_agents/1"
+```
+
+---
+
+## Task 2: Update `AgentsLive.Index` with filter state and sidebar
+
+**Files:**
+- Modify: `apps/agent_on_demand/lib/agent_on_demand_web/live/agents_live/index.ex`
+
+- [ ] **Step 1: Replace the full content of `index.ex`**
+
+Replace `apps/agent_on_demand/lib/agent_on_demand_web/live/agents_live/index.ex` with:
+
+```elixir
 defmodule AgentOnDemandWeb.AgentsLive.Index do
   use AgentOnDemandWeb, :live_view
 
@@ -132,10 +346,7 @@ defmodule AgentOnDemandWeb.AgentsLive.Index do
                 </span>
                 <span class="text-xs text-zinc-400">{Map.get(@facet_counts.env_ids, "none", 0)}</span>
               </label>
-              <label
-                :for={env <- @all_environments}
-                class="flex items-center justify-between gap-2 text-sm cursor-pointer"
-              >
+              <label :for={env <- @all_environments} class="flex items-center justify-between gap-2 text-sm cursor-pointer">
                 <span class="flex items-center gap-1.5">
                   <input
                     type="checkbox"
@@ -277,3 +488,42 @@ defmodule AgentOnDemandWeb.AgentsLive.Index do
       assigns.filter_has_mcp
   end
 end
+```
+
+- [ ] **Step 2: Verify the LiveView compiles without errors**
+
+```bash
+cd apps/agent_on_demand && mix compile --warnings-as-errors
+```
+
+Expected: clean compile, no warnings.
+
+- [ ] **Step 3: Run the full test suite**
+
+```bash
+mix test
+```
+
+Expected: all tests pass (no regressions from existing tests).
+
+- [ ] **Step 4: Smoke-test in a browser**
+
+```bash
+mix phx.server
+```
+
+Navigate to `http://localhost:4000/agents`. Verify:
+- Left sidebar shows Runtime and Environment facets with counts
+- Checking a runtime checkbox immediately narrows the table
+- Search input filters by name with a short debounce delay
+- "Has skills" and "Has MCP servers" checkboxes filter correctly
+- "Clear all filters" link appears when any filter is active and resets all filters
+- Deleting an agent refreshes both the table and facet counts
+- The "No agents match the current filters" message appears when filters yield zero results
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/agent_on_demand/lib/agent_on_demand_web/live/agents_live/index.ex
+git commit -m "feat: add faceted filter sidepanel to agents list page"
+```
