@@ -72,6 +72,9 @@ defmodule AgentOnDemandWeb.ConversationController do
   )
 
   def create(conn, params) do
+    images = decode_images(params["images"])
+    params = Map.put(params, "images", images)
+
     with {:ok, conv} <- Conversations.start_conversation(params) do
       conn
       |> put_status(:created)
@@ -94,8 +97,10 @@ defmodule AgentOnDemandWeb.ConversationController do
     ]
   )
 
-  def prompt(conn, %{"conversation_id" => id, "prompt" => prompt}) do
-    case ConversationServer.send_prompt(id, prompt) do
+  def prompt(conn, %{"conversation_id" => id, "prompt" => prompt} = params) do
+    images = decode_images(params["images"])
+
+    case ConversationServer.send_prompt(id, prompt, images) do
       :ok -> json(conn, %{status: "queued"})
       {:error, :not_running} -> {:error, :not_found}
       {:error, :busy} -> {:error, "conversation_busy"}
@@ -247,6 +252,23 @@ defmodule AgentOnDemandWeb.ConversationController do
 
   defp parse_streams_param(s) when is_binary(s) do
     s |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+  end
+
+  defp decode_images(nil), do: []
+  defp decode_images([]), do: []
+
+  defp decode_images(images) when is_list(images) do
+    Enum.map(images, fn img ->
+      b64 = img["data"] || img[:data]
+      mt = img["media_type"] || img[:media_type]
+      data = Base.decode64!(b64)
+
+      if byte_size(data) > 10 * 1024 * 1024 do
+        raise ArgumentError, "Image exceeds 10MB limit"
+      end
+
+      %{media_type: mt, data: data}
+    end)
   end
 
   defp parse_last_event_id(nil), do: 0
