@@ -748,7 +748,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     end
   end
 
-  defp kick_turn(state, prompt, agent, images \\ []) do
+  defp kick_turn(state, prompt, agent, images) do
     conv = Conversations.get_conversation!(state.conversation_id)
     turn_number = Conversations.next_turn_number(state.conversation_id)
 
