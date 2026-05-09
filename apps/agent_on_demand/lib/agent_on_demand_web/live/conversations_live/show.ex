@@ -355,6 +355,9 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     """
   end
 
+  attr :graph, :any, required: true
+  attr :conv_id, :string, required: true
+
   defp conversation_graph(assigns) do
     ~H"""
     <div
