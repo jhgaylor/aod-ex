@@ -422,8 +422,10 @@ defmodule AgentOnDemand.Conversations do
     SELECT id FROM ancestors WHERE parent_conversation_id IS NULL LIMIT 1
     """
 
-    %{rows: [[root_id]]} = Repo.query!(sql, [conversation_id])
-    root_id
+    case Repo.query!(sql, [conversation_id]) do
+      %{rows: [[root_id]]} -> root_id
+      _ -> conversation_id
+    end
   end
 
   defp broadcast_graph_update(root_id) do
