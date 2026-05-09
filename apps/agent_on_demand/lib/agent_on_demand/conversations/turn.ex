@@ -2,7 +2,7 @@ defmodule AgentOnDemand.Conversations.Turn do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias AgentOnDemand.Conversations.Conversation
+  alias AgentOnDemand.Conversations.{Conversation, TurnImage}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -17,6 +17,7 @@ defmodule AgentOnDemand.Conversations.Turn do
     field :started_at, :utc_datetime
     field :ended_at, :utc_datetime
     belongs_to :conversation, Conversation
+    has_many :images, TurnImage, preload_order: [asc: :position]
     timestamps(type: :utc_datetime, updated_at: false)
   end
 
