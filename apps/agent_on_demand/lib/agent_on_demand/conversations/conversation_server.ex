@@ -38,7 +38,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   and queue this prompt as the first turn of the new sandbox. claude
   `--resume` preserves the chat via the persisted runtime_session_id.
   """
-  def send_prompt(conv_id, prompt) do
+  def send_prompt(conv_id, prompt, images \\ []) do
     case whereis(conv_id) do
       nil ->
         case Conversations.wake_conversation(conv_id, prompt) do
@@ -49,7 +49,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         end
 
       pid ->
-        GenServer.call(pid, {:send_prompt, prompt}, 30_000)
+        GenServer.call(pid, {:send_prompt, prompt, images}, 30_000)
     end
   end
 
@@ -242,7 +242,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
           case state.initial_prompt do
             nil -> {:noreply, new_state}
-            p -> {:noreply, kick_turn(new_state, p, agent)}
+            p -> {:noreply, kick_turn(new_state, p, agent, [])}
           end
         else
           {:error, reason} ->
@@ -385,7 +385,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
 
         case state.initial_prompt do
           nil -> {:noreply, new_state}
-          p -> {:noreply, kick_turn(new_state, p, agent)}
+          p -> {:noreply, kick_turn(new_state, p, agent, [])}
         end
 
       {:error, reason} ->
@@ -604,13 +604,23 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   @impl true
+  def handle_call({:send_prompt, prompt, images}, _from, state) do
+    if state.current_command do
+      {:reply, {:error, :busy}, state}
+    else
+      conv = Conversations.get_conversation!(state.conversation_id)
+      agent = if conv.agent_id, do: Agents.get_agent!(conv.agent_id)
+      {:reply, :ok, kick_turn(state, prompt, agent, images)}
+    end
+  end
+
   def handle_call({:send_prompt, prompt}, _from, state) do
     if state.current_command do
       {:reply, {:error, :busy}, state}
     else
       conv = Conversations.get_conversation!(state.conversation_id)
       agent = if conv.agent_id, do: Agents.get_agent!(conv.agent_id)
-      {:reply, :ok, kick_turn(state, prompt, agent)}
+      {:reply, :ok, kick_turn(state, prompt, agent, [])}
     end
   end
 
@@ -738,7 +748,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     end
   end
 
-  defp kick_turn(state, prompt, agent) do
+  defp kick_turn(state, prompt, agent, images) do
     conv = Conversations.get_conversation!(state.conversation_id)
     turn_number = Conversations.next_turn_number(state.conversation_id)
 
@@ -750,6 +760,12 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         status: "running",
         started_at: now()
       })
+
+    # Store images in DB
+    {:ok, _} = Conversations.insert_turn_images(turn.id, images)
+
+    # Write image temp files to sprite
+    image_paths = write_image_temp_files(state.sprite, turn.id, images)
 
     {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
 
@@ -774,7 +790,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       end
 
     {cmd, args, build_opts} =
-      state.runtime_module.build_command(agent, prompt, mode, runtime_session_id, [])
+      state.runtime_module.build_command(agent, prompt, mode, runtime_session_id, [images: image_paths])
 
     # If a runtime embeds the prompt in argv (codex), it returns
     # `stdin?: false` and we skip the Sprites.write/close_stdin pipeline.
@@ -961,4 +977,27 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+  # Write each image to a temp path in the sprite filesystem and return
+  # a list of {path, media_type} tuples for passing to the runtime.
+  defp write_image_temp_files(_sprite, _turn_id, []), do: []
+
+  defp write_image_temp_files(sprite, turn_id, images) do
+    fs = Sprites.filesystem(sprite, "/")
+
+    images
+    |> Enum.with_index()
+    |> Enum.map(fn {%{media_type: mt, data: data}, idx} ->
+      ext = media_type_to_ext(mt)
+      path = "/tmp/aod_turn_#{turn_id}_#{idx}.#{ext}"
+      Sprites.Filesystem.write(fs, path, data)
+      {path, mt}
+    end)
+  end
+
+  defp media_type_to_ext("image/png"), do: "png"
+  defp media_type_to_ext("image/jpeg"), do: "jpeg"
+  defp media_type_to_ext("image/gif"), do: "gif"
+  defp media_type_to_ext("image/webp"), do: "webp"
+  defp media_type_to_ext(_), do: "bin"
 end

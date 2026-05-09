@@ -7,11 +7,12 @@ top-level `Client` and just call its `_request`. SSE streaming uses
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, List, Optional
 
 import httpx
 
@@ -148,18 +149,40 @@ class _Conversations:
     def get(self, conv_id: str) -> dict:
         return self._c._request("GET", f"/conversations/{conv_id}")
 
-    def create(self, agent_id: str, prompt: str) -> dict:
-        return self._c._request(
-            "POST",
-            "/conversations",
-            json_body={"agent_id": agent_id, "prompt": prompt},
-        )
+    def create(
+        self,
+        agent_id: str,
+        prompt: str,
+        images: Optional[List[dict]] = None,
+    ) -> dict:
+        """Create a new conversation.
 
-    def prompt(self, conv_id: str, prompt: str) -> dict:
+        `images` is an optional list of dicts with `data` (raw bytes) and
+        `media_type` (e.g. "image/png"). Base64 encoding is done here.
+        """
+        body: dict[str, Any] = {"agent_id": agent_id, "prompt": prompt}
+        if images:
+            body["images"] = _encode_images(images)
+        return self._c._request("POST", "/conversations", json_body=body)
+
+    def prompt(
+        self,
+        conv_id: str,
+        prompt: str,
+        images: Optional[List[dict]] = None,
+    ) -> dict:
+        """Send a prompt to an existing conversation.
+
+        `images` is an optional list of dicts with `data` (raw bytes) and
+        `media_type`. Base64 encoding is done here.
+        """
+        body: dict[str, Any] = {"prompt": prompt}
+        if images:
+            body["images"] = _encode_images(images)
         return self._c._request(
             "POST",
             f"/conversations/{conv_id}/prompts",
-            json_body={"prompt": prompt},
+            json_body=body,
         )
 
     def interrupt(self, conv_id: str) -> dict:
@@ -244,6 +267,19 @@ class _Conversations:
                 raise TimeoutError(f"Conversation {conv_id} still running after {timeout}s")
 
             time.sleep(poll_interval)
+
+
+def _encode_images(images: List[dict]) -> list:
+    """Encode image `data` bytes to base64 for the API."""
+    result = []
+    for img in images:
+        data = img["data"]
+        if isinstance(data, (bytes, bytearray)):
+            encoded = base64.b64encode(data).decode("ascii")
+        else:
+            encoded = data  # assume already base64-encoded string
+        result.append({"data": encoded, "media_type": img["media_type"]})
+    return result
 
 
 # ── SSE parsing ───────────────────────────────────────────────────

@@ -8,13 +8,29 @@ defmodule AodClient.Conversations do
   def list(client), do: Api.get(client, "/conversations")
   def get(client, id), do: Api.get(client, "/conversations/#{id}")
 
-  def create(client, fields) do
+  def create(client, fields, images \\ []) do
     fields = Map.new(fields)
-    Api.post(client, "/conversations", fields)
+    body = if images != [], do: Map.put(fields, :images, encode_images(images)), else: fields
+    Api.post(client, "/conversations", body)
   end
 
-  def prompt(client, id, prompt),
-    do: Api.post(client, "/conversations/#{id}/prompts", %{prompt: prompt})
+  @doc """
+  Send a prompt to an existing conversation.
+
+  `images` is an optional list of `%{data: binary, media_type: string}` maps.
+  The `data` field should be raw bytes; this function handles base64 encoding.
+  """
+  def prompt(client, id, prompt, images \\ []) do
+    body = %{prompt: prompt}
+    body = if images != [], do: Map.put(body, :images, encode_images(images)), else: body
+    Api.post(client, "/conversations/#{id}/prompts", body)
+  end
+
+  defp encode_images(images) do
+    Enum.map(images, fn %{data: data, media_type: mt} ->
+      %{data: Base.encode64(data), media_type: mt}
+    end)
+  end
 
   def interrupt(client, id), do: Api.post(client, "/conversations/#{id}/interrupt")
   def terminate(client, id), do: Api.post(client, "/conversations/#{id}/terminate")

@@ -39,7 +39,8 @@ defmodule AgentOnDemandWeb.ConversationJSON do
       exit_code: t.exit_code,
       started_at: t.started_at,
       ended_at: t.ended_at,
-      inserted_at: t.inserted_at
+      inserted_at: t.inserted_at,
+      image_count: length(t.images || [])
     }
   end
 end

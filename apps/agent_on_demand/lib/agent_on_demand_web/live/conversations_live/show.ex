@@ -25,12 +25,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
          |> assign(:turns_by_id, load_turns(id))
          |> assign(:visible_streams, MapSet.new(["stdout", "stderr", "stage"]))
          |> assign(:view_mode, :pretty)
-         |> assign(:prompt, "")}
+         |> assign(:prompt, "")
+         |> assign(:pending_images, [])}
     end
   end
 
   defp load_turns(conv_id) do
-    Conversations.list_turns(conv_id) |> Map.new(&{&1.id, &1})
+    Conversations.list_turns(conv_id)
+    |> Enum.map(fn t ->
+      image_count = length(t.images || [])
+      Map.put(t, :image_count, image_count)
+    end)
+    |> Map.new(&{&1.id, &1})
   end
 
   # Pair `started`/`done` stage events by name (most recent open
@@ -83,8 +89,22 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("images_selected", %{"images" => images}, socket) do
+    {:noreply, assign(socket, :pending_images, images)}
+  end
+
   def handle_event("send_prompt", %{"prompt" => p}, socket) when byte_size(p) > 0 do
-    case ConversationServer.send_prompt(socket.assigns.conv.id, p) do
+    images =
+      Enum.map(socket.assigns.pending_images || [], fn img ->
+        %{"data" => img["data"], "media_type" => img["media_type"]}
+      end)
+
+    decoded_images =
+      Enum.map(images, fn %{"data" => b64, "media_type" => mt} ->
+        %{media_type: mt, data: Base.decode64!(b64)}
+      end)
+
+    case ConversationServer.send_prompt(socket.assigns.conv.id, p, decoded_images) do
       :ok ->
         # Refetch the conversation — wake-from-cold flips sandbox + status.
         conv = Conversations.get_conversation!(socket.assigns.conv.id)
@@ -93,6 +113,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
          socket
          |> assign(:conv, conv)
          |> assign(:prompt, "")
+         |> assign(:pending_images, [])
          |> put_flash(:info, "Queued")}
 
       {:error, :busy} ->
@@ -279,9 +300,29 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
       <form phx-submit="send_prompt" phx-change="update_prompt" class="bg-white rounded shadow border border-zinc-200 p-4 space-y-3">
         <.input id="prompt" name="prompt" type="textarea" rows="3"
           value={@prompt} placeholder="Send another prompt…" phx-hook="SubmitOnCmdEnter"/>
-        <div class="flex justify-end items-center gap-3">
-          <span class="text-xs text-zinc-400"><kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">&#8984;</kbd> <kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">Enter</kbd> to send</span>
-          <.btn type="submit" phx-disable-with="Sending…">Send</.btn>
+        <div :if={@pending_images != []} class="flex flex-wrap gap-2">
+          <%= for img <- @pending_images do %>
+            <div class="relative group">
+              <img src={img["url"]} class="h-16 w-16 object-cover rounded border border-zinc-200 cursor-pointer"
+                onclick={"window.open('#{img["url"]}', '_blank')"} />
+              <span class="absolute -top-1 -right-1 hidden group-hover:flex bg-zinc-800 text-white text-[9px] rounded px-1">{img["name"]}</span>
+            </div>
+          <% end %>
+        </div>
+        <div class="flex justify-between items-center gap-3">
+          <label class="cursor-pointer flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span>{if @pending_images == [], do: "Attach images", else: "#{length(@pending_images)} image(s)"}</span>
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden"
+              id="image-picker" phx-hook="ImagePicker" />
+          </label>
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-zinc-400"><kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">&#8984;</kbd> <kbd class="px-1 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">Enter</kbd> to send</span>
+            <.btn type="submit" phx-disable-with="Sending…">Send</.btn>
+          </div>
         </div>
       </form>
     </div>
@@ -342,12 +383,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     reply = chat_assistant_reply(assigns.events, assigns.conv.runtime)
     agent_name = assigns.conv.agent && assigns.conv.agent.name
     runtime_label = assigns.conv.runtime
+    image_count = Map.get(assigns.turn, :image_count, 0)
 
     assigns =
       assign(assigns,
         reply: reply,
         agent_name: agent_name || runtime_label,
-        agent_glyph: agent_glyph(runtime_label)
+        agent_glyph: agent_glyph(runtime_label),
+        image_count: image_count
       )
 
     ~H"""
@@ -359,6 +402,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
         glyph_class="bg-blue-600 text-white"
         timestamp={@turn.started_at}
       >
+        <div :if={@image_count > 0} class="flex flex-wrap gap-2 mb-2">
+          <%= for pos <- 0..(@image_count - 1) do %>
+            <a href={"/api/conversations/#{@conv.id}/turns/#{@turn.id}/images/#{pos}"} target="_blank">
+              <img src={"/api/conversations/#{@conv.id}/turns/#{@turn.id}/images/#{pos}"}
+                class="max-w-[300px] max-h-[200px] object-contain rounded border border-blue-400/30" />
+            </a>
+          <% end %>
+        </div>
         <p class="whitespace-pre-wrap m-0">{@turn.prompt}</p>
       </.chat_message>
 

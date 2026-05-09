@@ -183,13 +183,38 @@ defmodule AodCli.Conv do
 
   defp prompt(id, args) do
     {opts, _, _} =
-      OptionParser.parse(args, strict: [prompt: :string], aliases: [p: :prompt])
+      OptionParser.parse(args,
+        strict: [prompt: :string, image: :keep],
+        aliases: [p: :prompt, i: :image]
+      )
 
     prompt_text = opts[:prompt] || AodCli.die("missing -p <prompt>")
 
-    case Api.post("/conversations/#{id}/prompts", %{prompt: prompt_text}) do
+    image_paths = opts |> Keyword.get_values(:image)
+
+    images =
+      Enum.map(image_paths, fn path ->
+        data = File.read!(path) |> Base.encode64()
+        media_type = guess_media_type(path)
+        %{data: data, media_type: media_type}
+      end)
+
+    body = %{prompt: prompt_text, images: images}
+
+    case Api.post("/conversations/#{id}/prompts", body) do
       {:ok, _} -> follow_until_idle(id)
       {:error, e} -> AodCli.die("#{inspect(e)}")
+    end
+  end
+
+  defp guess_media_type(path) do
+    case Path.extname(path) |> String.downcase() do
+      ".png" -> "image/png"
+      ".jpg" -> "image/jpeg"
+      ".jpeg" -> "image/jpeg"
+      ".gif" -> "image/gif"
+      ".webp" -> "image/webp"
+      _ -> "image/png"
     end
   end
 

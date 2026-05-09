@@ -8,7 +8,7 @@ defmodule AgentOnDemand.Conversations do
 
   import Ecto.Query
 
-  alias AgentOnDemand.Conversations.{Conversation, LogEvent, Sandbox, Turn}
+  alias AgentOnDemand.Conversations.{Conversation, LogEvent, Sandbox, Turn, TurnImage}
   alias AgentOnDemand.Repo
 
   # ── sandboxes ─────────────────────────────────────────────────────────────
@@ -132,8 +132,49 @@ defmodule AgentOnDemand.Conversations do
     Repo.all(
       from t in Turn,
         where: t.conversation_id == ^conversation_id,
-        order_by: [asc: t.turn_number]
+        order_by: [asc: t.turn_number],
+        preload: [images: ^from(i in TurnImage, order_by: [asc: i.position])]
     )
+  end
+
+  def list_turns_with_images(conversation_id) do
+    Repo.all(
+      from t in Turn,
+        where: t.conversation_id == ^conversation_id,
+        order_by: [asc: t.turn_number],
+        preload: [images: ^from(i in TurnImage, order_by: [asc: i.position])]
+    )
+  end
+
+  def get_turn_by_conversation(turn_id, conversation_id) do
+    Repo.get_by(Turn, id: turn_id, conversation_id: conversation_id)
+  end
+
+  def insert_turn_images(_turn_id, []), do: {:ok, []}
+
+  def insert_turn_images(turn_id, images) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    rows =
+      images
+      |> Enum.with_index()
+      |> Enum.map(fn {%{media_type: mt, data: data}, idx} ->
+        %{
+          id: Ecto.UUID.generate(),
+          turn_id: turn_id,
+          position: idx,
+          media_type: mt,
+          data: data,
+          inserted_at: now
+        }
+      end)
+
+    {count, _} = Repo.insert_all("turn_images", rows)
+    {:ok, count}
+  end
+
+  def get_turn_image(turn_id, position) do
+    Repo.get_by(TurnImage, turn_id: turn_id, position: position)
   end
 
   def next_turn_number(conversation_id) do
