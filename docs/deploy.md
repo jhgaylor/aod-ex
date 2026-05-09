@@ -80,7 +80,7 @@ The cross-build path needs **one custom Burrito step** in `lib/aod/burrito/`.
 
 ### The root cause
 
-Burrito ships precompiled ERTS for select OTP versions via [beam-machine](https://beam-machine-universal.b-cdn.net). We pin to 28.4 ERTS via `custom_erts: <url>` in `mix.exs`, which triggers one issue:
+Burrito ships precompiled ERTS for select OTP versions via [beam-machine](https://beam-machine-universal.b-cdn.net). We snapshotted those tarballs into a `vendor-erts-otp-28.4` GitHub release on this repo and pin `custom_erts:` at our own URLs — beam-machine's URLs are not immutable (in v0.2.11 the upstream republished an OTP build with `_FORTIFY_SOURCE` enabled, which tripped `__memcpy_chk` symbol resolution under musl and broke deploys). Pointing at our own release fixes drift; see the release notes for the snapshotted SHAs. To bump OTP, snapshot a verified tarball into a new `vendor-erts-*` release and update `mix.exs`. Pinning at a `custom_erts: <url>` then triggers one Burrito issue:
 
 **`Burrito.Steps.Fetch.FetchMusl` skips us.** It pattern-matches on `erts_source: {:precompiled, _}`. With `custom_erts: <url>`, the source becomes `{:url, _}` — FetchMusl never runs, so `__BURRITO_MUSL_RUNTIME_PATH` stays empty and the wrapper compiles without the dynamic linker. beam.smp then fails at runtime with `error: FileNotFound`.
 

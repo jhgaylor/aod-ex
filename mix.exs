@@ -76,19 +76,27 @@ defmodule AoD.Umbrella.MixProject do
     skip_nifs = Keyword.get(opts, :skip_nifs, false)
 
     [
+      # ERTS tarballs are self-hosted on a vendor-erts-otp-28.4 release
+      # in this repo, NOT pulled from beam-machine-universal directly.
+      # Beam-machine's URLs are not immutable: in v0.2.11 the upstream
+      # served a crypto-5.8.3 build with _FORTIFY_SOURCE enabled
+      # (`__memcpy_chk` symbol references), which musl doesn't implement,
+      # so the released binary failed to load crypto on Sprites.
+      # If you need a newer OTP, snapshot a verified-clean tarball into
+      # the vendor-erts-* release and bump these URLs.
       targets: [
         linux: [
           os: :linux,
           cpu: :x86_64,
           custom_erts:
-            "https://beam-machine-universal.b-cdn.net/OTP-28.4/linux/x86_64/any/otp_28.4_linux_any_x86_64.tar.gz?openssl=3.5.1&musl=1.2.5",
+            "https://github.com/jhgaylor/aod-ex/releases/download/vendor-erts-otp-28.4/otp_28.4_linux_x86_64_musl.tar.gz",
           skip_nifs: skip_nifs
         ],
         macos: [
           os: :darwin,
           cpu: :aarch64,
           custom_erts:
-            "https://beam-machine-universal.b-cdn.net/OTP-28.4/macos/universal/otp_28.4_macos_universal.tar.gz?openssl=3.5.1&musl=1.2.5",
+            "https://github.com/jhgaylor/aod-ex/releases/download/vendor-erts-otp-28.4/otp_28.4_macos_universal.tar.gz",
           skip_nifs: skip_nifs
         ]
       ],
