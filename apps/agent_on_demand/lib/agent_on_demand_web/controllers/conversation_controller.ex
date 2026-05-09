@@ -62,7 +62,8 @@ defmodule AgentOnDemandWeb.ConversationController do
     summary: "Start a conversation",
     description:
       "Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, " <>
-        "and (if `prompt` is supplied) sends it as turn 1.",
+        "and (if `prompt` is supplied) sends it as turn 1. " <>
+        "Pass `X-AoD-Parent-Conversation-Id` header to record which conversation spawned this one.",
     request_body: {"Conversation attrs", "application/json", Schemas.ConversationCreateRequest},
     responses: [
       created: {"Conversation", "application/json", Schemas.ConversationResponse},
@@ -73,7 +74,23 @@ defmodule AgentOnDemandWeb.ConversationController do
 
   def create(conn, params) do
     images = decode_images(params["images"])
-    params = Map.put(params, "images", images)
+
+    parent_id =
+      conn
+      |> get_req_header("x-aod-parent-conversation-id")
+      |> List.first()
+
+    {source, parent_id} =
+      case parent_id do
+        id when is_binary(id) and byte_size(id) > 0 -> {"agent", id}
+        _ -> {"api", nil}
+      end
+
+    params =
+      params
+      |> Map.put("images", images)
+      |> Map.put("source", source)
+      |> Map.put("parent_conversation_id", parent_id)
 
     with {:ok, conv} <- Conversations.start_conversation(params) do
       conn
