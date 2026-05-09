@@ -27,6 +27,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.New do
 
   def handle_event("submit", %{"conv" => params}, socket) do
     params = if params["vault_id"] == "", do: Map.delete(params, "vault_id"), else: params
+    params = Map.put(params, "source", "ui")
 
     case Conversations.start_conversation(params) do
       {:ok, conv} ->
