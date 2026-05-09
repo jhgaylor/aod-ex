@@ -15,6 +15,8 @@ defmodule AgentOnDemandWeb.ConversationJSON do
       runtime: c.runtime,
       status: c.status,
       runtime_session_id: c.runtime_session_id,
+      source: c.source,
+      parent_conversation_id: c.parent_conversation_id,
       inserted_at: c.inserted_at,
       updated_at: c.updated_at
     }
