@@ -239,6 +239,18 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
           <div :if={@conv.vault} class="text-sm text-zinc-500">
             vault: <.link navigate={~p"/vaults/#{@conv.vault.id}/edit"} class="font-medium underline">{@conv.vault.name}</.link>
           </div>
+          <div class="text-sm text-zinc-500 flex items-center gap-1.5">
+            source: <.source_badge source={@conv.source} />
+          </div>
+          <div :if={@conv.parent_conversation_id} class="text-sm text-zinc-500">
+            spawned by:
+            <.link
+              navigate={~p"/conversations/#{@conv.parent_conversation_id}"}
+              class="font-mono underline text-zinc-700 hover:text-zinc-900"
+            >
+              {String.slice(@conv.parent_conversation_id, 0, 8)}
+            </.link>
+          </div>
         </div>
         <div class="flex gap-2">
           <.btn_secondary :if={@conv.status == "running"}
@@ -349,6 +361,26 @@ defmodule AgentOnDemandWeb.ConversationsLive.Show do
     >
       {@label}
     </button>
+    """
+  end
+
+  attr :source, :string, required: true
+
+  defp source_badge(%{source: "ui"} = assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700">ui</span>
+    """
+  end
+
+  defp source_badge(%{source: "agent"} = assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">agent</span>
+    """
+  end
+
+  defp source_badge(assigns) do
+    ~H"""
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-600">{@source}</span>
     """
   end
 
