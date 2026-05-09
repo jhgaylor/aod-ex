@@ -76,6 +76,28 @@ defmodule AgentOnDemandWeb.Schemas do
     })
   end
 
+  defmodule ImageInput do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ImageInput",
+      description: "A base64-encoded image to attach to a prompt.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :string,
+          description: "Base64-encoded image bytes."
+        },
+        media_type: %Schema{
+          type: :string,
+          enum: ~w(image/png image/jpeg image/gif image/webp),
+          description: "MIME type of the image."
+        }
+      },
+      required: [:data, :media_type]
+    })
+  end
+
   defmodule ConversationCreateRequest do
     require OpenApiSpex
 
@@ -92,6 +114,12 @@ defmodule AgentOnDemandWeb.Schemas do
             "Optional vault whose secrets override the environment's baseline at sprite spawn."
         },
         prompt: %Schema{type: :string, description: "Optional first turn prompt."},
+        images: %Schema{
+          type: :array,
+          items: ImageInput,
+          description: "Optional images to attach to the initial prompt.",
+          nullable: true
+        },
         sprite_name: %Schema{
           type: :string,
           description: "Override the auto-generated sprite name."
@@ -107,7 +135,15 @@ defmodule AgentOnDemandWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "PromptRequest",
       type: :object,
-      properties: %{prompt: %Schema{type: :string}},
+      properties: %{
+        prompt: %Schema{type: :string},
+        images: %Schema{
+          type: :array,
+          items: ImageInput,
+          description: "Optional images to attach to this prompt.",
+          nullable: true
+        }
+      },
       required: [:prompt]
     })
   end
@@ -141,7 +177,8 @@ defmodule AgentOnDemandWeb.Schemas do
         exit_code: %Schema{type: :integer, nullable: true},
         started_at: %Schema{type: :string, format: :"date-time", nullable: true},
         ended_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        inserted_at: %Schema{type: :string, format: :"date-time"}
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        image_count: %Schema{type: :integer, description: "Number of images attached to this turn."}
       },
       required: [:id, :turn_number, :prompt, :status]
     })
