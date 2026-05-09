@@ -78,6 +78,44 @@ defmodule AgentOnDemand.Conversations do
   end
 
   @doc """
+  Returns all conversations in the same spawn tree as `conversation_id`,
+  including ancestors up to the root and all their descendants.
+
+  Each entry is a map with keys: :id, :source, :status, :parent_id, :inserted_at
+  """
+  def get_conversation_tree(conversation_id) do
+    sql = """
+    WITH RECURSIVE
+    ancestors(id, parent_conversation_id) AS (
+      SELECT id, parent_conversation_id FROM conversations WHERE id = ?
+      UNION ALL
+      SELECT c.id, c.parent_conversation_id FROM conversations c
+      INNER JOIN ancestors a ON c.id = a.parent_conversation_id
+    ),
+    root_row AS (
+      SELECT id FROM ancestors WHERE parent_conversation_id IS NULL LIMIT 1
+    ),
+    tree(id, source, status, parent_id, inserted_at) AS (
+      SELECT c.id, c.source, c.status, c.parent_conversation_id, c.inserted_at
+      FROM conversations c, root_row r WHERE c.id = r.id
+      UNION ALL
+      SELECT c.id, c.source, c.status, c.parent_conversation_id, c.inserted_at
+      FROM conversations c
+      INNER JOIN tree t ON c.parent_conversation_id = t.id
+    )
+    SELECT id, source, status, parent_id, inserted_at FROM tree
+    """
+
+    %{rows: rows, columns: columns} = Repo.query!(sql, [conversation_id])
+
+    Enum.map(rows, fn row ->
+      columns
+      |> Enum.zip(row)
+      |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+    end)
+  end
+
+  @doc """
   Conversations whose `ConversationServer` would have been running at the
   time of a clean BEAM stop: status `idle` or `running`, with a fully-
   provisioned (`ready`) sandbox.
