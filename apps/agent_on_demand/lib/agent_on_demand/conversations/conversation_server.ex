@@ -812,6 +812,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     # local .git (so neither runtime trips on /home/sprite's perms).
     cwd = Keyword.get(build_opts, :dir)
 
+    # Runtimes that cannot accept images as CLI flags (claude, gemini)
+    # return a prompt_suffix with image references to append to stdin.
+    prompt_suffix = Keyword.get(build_opts, :prompt_suffix, "")
+
     publish_stage(state.conversation_id, "turn", "started", %{
       turn_id: turn.id,
       turn_number: turn_number,
@@ -853,7 +857,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       case Sprites.spawn(state.sprite, cmd, args, spawn_opts) do
         {:ok, command} ->
           if use_stdin? do
-            :ok = Sprites.write(command, prompt)
+            :ok = Sprites.write(command, prompt <> prompt_suffix)
             :ok = Sprites.close_stdin(command)
           end
 

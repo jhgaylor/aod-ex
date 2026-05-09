@@ -35,7 +35,7 @@ defmodule AgentOnDemand.Runtimes.Codex do
   def skills_sh_agent, do: "codex"
 
   @impl true
-  def build_command(_agent, prompt, mode, _runtime_session_id, _opts) do
+  def build_command(_agent, prompt, mode, _runtime_session_id, opts) do
     base =
       if mode == :continue do
         [
@@ -57,12 +57,18 @@ defmodule AgentOnDemand.Runtimes.Codex do
         ]
       end
 
+    # codex exec natively supports --image <path> for multimodal input.
+    image_args =
+      opts
+      |> Keyword.get(:images, [])
+      |> Enum.flat_map(fn {path, _mt} -> ["--image", path] end)
+
     # codex prints an "additional input from stdin" / "prompt from
     # stdin" warning whenever `isatty(0)` is false. Both a piped stdin
     # AND a /dev/null redirect trigger it. Allocate a PTY (`tty?: true`)
     # so codex sees stdin as a TTY and stays quiet. We pass the prompt
     # as argv so codex doesn't actually read from the PTY.
-    {"codex", base ++ [prompt], stdin?: false, tty?: true}
+    {"codex", base ++ image_args ++ [prompt], stdin?: false, tty?: true}
   end
 
   @impl true
@@ -126,7 +132,7 @@ defmodule AgentOnDemand.Runtimes.Codex do
   defp toml_escape(s) do
     s
     |> String.replace("\\", "\\\\")
-    |> String.replace(~s("), ~s(\\"))
+    |> String.replace(~s("), ~s(\\"  ))
   end
 
   # codex 0.118+ does NOT read OPENAI_API_KEY at exec time — it only reads

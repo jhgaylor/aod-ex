@@ -37,12 +37,19 @@ defmodule AgentOnDemand.Runtimes.Claude do
       runtime_session_id || ""
     ]
 
-    image_args =
-      opts
-      |> Keyword.get(:images, [])
-      |> Enum.flat_map(fn {path, _mt} -> ["--image", path] end)
+    # The claude CLI has no --image flag. Append image file paths to the
+    # stdin prompt so Claude can use its Read tool to load them visually.
+    prompt_suffix =
+      case Keyword.get(opts, :images, []) do
+        [] ->
+          ""
 
-    {"claude", base_args ++ image_args, []}
+        images ->
+          paths = Enum.map_join(images, "\n", fn {path, _mt} -> path end)
+          "\n\n[Attached images — read each file path to view:\n#{paths}]"
+      end
+
+    {"claude", base_args, [prompt_suffix: prompt_suffix]}
   end
 
   @impl true

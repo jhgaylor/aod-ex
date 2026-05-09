@@ -33,7 +33,7 @@ defmodule AgentOnDemand.Runtimes.Gemini do
   def skills_sh_agent, do: "gemini-cli"
 
   @impl true
-  def build_command(agent, _prompt, mode, _runtime_session_id, _opts) do
+  def build_command(agent, _prompt, mode, _runtime_session_id, opts) do
     base = [
       "--output-format",
       "stream-json",
@@ -54,7 +54,15 @@ defmodule AgentOnDemand.Runtimes.Gemini do
 
     resume = if mode == :continue, do: ["--resume"], else: []
 
-    {"gemini", resume ++ base ++ mcp_args, dir: @workdir}
+    # Gemini has no --image flag. The @path syntax embedded in the prompt
+    # text tells gemini-cli to include that file as multimodal context.
+    prompt_suffix =
+      case Keyword.get(opts, :images, []) do
+        [] -> ""
+        images -> "\n" <> Enum.map_join(images, "\n", fn {path, _mt} -> "@#{path}" end)
+      end
+
+    {"gemini", resume ++ base ++ mcp_args, [dir: @workdir, prompt_suffix: prompt_suffix]}
   end
 
   defp mcp_server_names(%{mcp_servers: m}) when is_map(m) and m != %{},
