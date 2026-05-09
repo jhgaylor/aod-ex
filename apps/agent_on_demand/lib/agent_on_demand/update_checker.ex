@@ -27,13 +27,16 @@ defmodule AgentOnDemand.UpdateChecker do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    release_fetcher = Keyword.get(opts, :release_fetcher, &GithubReleases.get_latest_release/0)
+
     state = %{
       current_version: read_current_version(),
       latest_version: nil,
       has_update: false,
       last_checked_at: nil,
-      checking: false
+      checking: false,
+      release_fetcher: release_fetcher
     }
 
     send(self(), :check)
@@ -57,11 +60,11 @@ defmodule AgentOnDemand.UpdateChecker do
 
   @impl true
   def handle_call(:get_status, _from, state) do
-    {:reply, state, state}
+    {:reply, Map.delete(state, :release_fetcher), state}
   end
 
   defp do_check(state) do
-    case GithubReleases.get_latest_release() do
+    case state.release_fetcher.() do
       {:ok, release} ->
         latest = release["tag_name"] |> String.trim_leading("v")
         has_update = version_newer?(latest, state.current_version)
@@ -86,7 +89,7 @@ defmodule AgentOnDemand.UpdateChecker do
   end
 
   defp broadcast(state) do
-    Phoenix.PubSub.broadcast(@pubsub, @topic, {:update_status, state})
+    Phoenix.PubSub.broadcast(@pubsub, @topic, {:update_status, Map.delete(state, :release_fetcher)})
   end
 
   defp read_current_version do
