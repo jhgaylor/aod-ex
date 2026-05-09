@@ -81,7 +81,9 @@ defmodule AgentOnDemand.Conversations do
   Returns all conversations in the same spawn tree as `conversation_id`,
   including ancestors up to the root and all their descendants.
 
-  Each entry is a map with keys: :id, :source, :status, :parent_id, :inserted_at
+  Each entry is a map with keys: :id, :source, :status, :parent_id
+
+  Returns `[]` when `conversation_id` does not exist.
   """
   def get_conversation_tree(conversation_id) do
     sql = """
@@ -95,15 +97,15 @@ defmodule AgentOnDemand.Conversations do
     root_row AS (
       SELECT id FROM ancestors WHERE parent_conversation_id IS NULL LIMIT 1
     ),
-    tree(id, source, status, parent_id, inserted_at) AS (
-      SELECT c.id, c.source, c.status, c.parent_conversation_id, c.inserted_at
+    tree(id, source, status, parent_id) AS (
+      SELECT c.id, c.source, c.status, c.parent_conversation_id
       FROM conversations c, root_row r WHERE c.id = r.id
       UNION ALL
-      SELECT c.id, c.source, c.status, c.parent_conversation_id, c.inserted_at
+      SELECT c.id, c.source, c.status, c.parent_conversation_id
       FROM conversations c
       INNER JOIN tree t ON c.parent_conversation_id = t.id
     )
-    SELECT id, source, status, parent_id, inserted_at FROM tree
+    SELECT id, source, status, parent_id FROM tree
     """
 
     %{rows: rows, columns: columns} = Repo.query!(sql, [conversation_id])

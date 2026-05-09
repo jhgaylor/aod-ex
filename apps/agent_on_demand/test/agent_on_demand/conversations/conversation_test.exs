@@ -91,7 +91,7 @@ defmodule AgentOnDemand.Conversations.ConversationTest do
       sb = make_sandbox()
       root = make_conv(sb.id, %{source: "ui"})
       child = make_conv(sb.id, %{source: "agent", parent_conversation_id: root.id})
-      _grandchild = make_conv(sb.id, %{source: "agent", parent_conversation_id: child.id})
+      grandchild = make_conv(sb.id, %{source: "agent", parent_conversation_id: child.id})
 
       tree = Conversations.get_conversation_tree(root.id)
       ids = Enum.map(tree, & &1.id)
@@ -99,6 +99,7 @@ defmodule AgentOnDemand.Conversations.ConversationTest do
       assert length(tree) == 3
       assert root.id in ids
       assert child.id in ids
+      assert grandchild.id in ids
     end
 
     test "walks up to root and returns full tree when called from a child node" do
@@ -127,7 +128,11 @@ defmodule AgentOnDemand.Conversations.ConversationTest do
       assert Map.has_key?(node, :source)
       assert Map.has_key?(node, :status)
       assert Map.has_key?(node, :parent_id)
-      assert Map.has_key?(node, :inserted_at)
+    end
+
+    test "returns empty list for unknown conversation_id" do
+      tree = Conversations.get_conversation_tree(Ecto.UUID.generate())
+      assert tree == []
     end
   end
 end
