@@ -59,7 +59,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
   end
 
   defp load_data(socket) do
-    convs = Conversations.list_conversations()
+    convs = Conversations.list_conversations_by_activity()
     agents = Agents.list_agents()
 
     sorted = sort_conversations(convs, socket.assigns.sort_by, socket.assigns.sort_dir)
@@ -70,12 +70,14 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
     )
   end
 
+  @epoch ~U[0000-01-01 00:00:00Z]
+
   defp sort_conversations(convs, field, :asc) do
-    Enum.sort_by(convs, &Map.get(&1, field), DateTime)
+    Enum.sort_by(convs, &(Map.get(&1, field) || @epoch), DateTime)
   end
 
   defp sort_conversations(convs, field, :desc) do
-    Enum.sort_by(convs, &Map.get(&1, field), {:desc, DateTime})
+    Enum.sort_by(convs, &(Map.get(&1, field) || @epoch), {:desc, DateTime})
   end
 
   defp toggle_dir(:asc), do: :desc
@@ -170,7 +172,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
   defp relative_time(nil), do: ""
 
   defp relative_time(dt) do
-    secs = DateTime.diff(DateTime.utc_now(), dt)
+    secs = max(0, DateTime.diff(DateTime.utc_now(), dt))
 
     cond do
       secs < 60 -> "#{secs}s ago"
