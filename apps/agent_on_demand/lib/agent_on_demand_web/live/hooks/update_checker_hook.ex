@@ -33,7 +33,7 @@ defmodule AgentOnDemandWeb.Hooks.UpdateCheckerHook do
   defp handle_event("upgrade", _params, socket) do
     case Upgrader.perform() do
       :ok ->
-        spawn(fn -> Process.sleep(500); :init.stop(0) end)
+        Upgrader.schedule_restart()
         {:halt, put_flash(socket, :info, "Upgrading… server will restart shortly.")}
 
       {:error, :no_update} ->

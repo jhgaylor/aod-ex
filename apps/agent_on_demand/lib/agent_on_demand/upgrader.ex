@@ -18,6 +18,11 @@ defmodule AgentOnDemand.Upgrader do
     end
   end
 
+  @doc "Schedule a server restart after 500ms. Extracted for testability."
+  def schedule_restart do
+    spawn(fn -> Process.sleep(500); :init.stop(0) end)
+  end
+
   @doc "Path to the running server binary. Override via AOD_BINARY_PATH env var."
   def exe_path do
     System.get_env("AOD_BINARY_PATH") ||

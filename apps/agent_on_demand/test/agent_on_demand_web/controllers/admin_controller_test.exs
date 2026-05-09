@@ -6,6 +6,7 @@ defmodule AgentOnDemandWeb.AdminControllerTest do
 
   setup do
     stub(Upgrader, :perform, fn -> :ok end)
+    stub(Upgrader, :schedule_restart, fn -> :ok end)
     :ok
   end
 

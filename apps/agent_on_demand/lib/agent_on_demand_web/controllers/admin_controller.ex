@@ -8,7 +8,7 @@ defmodule AgentOnDemandWeb.AdminController do
   def upgrade(conn, _params) do
     case Upgrader.perform() do
       :ok ->
-        spawn(fn -> Process.sleep(500); :init.stop(0) end)
+        Upgrader.schedule_restart()
         json(conn, %{status: "restarting"})
 
       {:error, :no_update} ->
