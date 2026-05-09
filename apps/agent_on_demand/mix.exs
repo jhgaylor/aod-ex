@@ -59,6 +59,7 @@ defmodule AgentOnDemand.MixProject do
       # the umbrella's release config.
       {:burrito, "~> 1.5", runtime: false},
       {:mimic, "~> 1.7", only: :test},
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
   end
