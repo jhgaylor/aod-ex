@@ -102,6 +102,29 @@
             destroyed() {
               this.el.removeEventListener("keydown", this.handler);
             }
+          },
+          ImagePicker: {
+            mounted() {
+              this.el.addEventListener("change", (e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length === 0) return;
+
+                const readers = files.map(file => new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const dataUrl = ev.target.result;
+                    // Strip the data URL prefix to get base64 only
+                    const base64 = dataUrl.split(",")[1];
+                    resolve({ data: base64, media_type: file.type, name: file.name, url: dataUrl });
+                  };
+                  reader.readAsDataURL(file);
+                }));
+
+                Promise.all(readers).then(images => {
+                  this.pushEvent("images_selected", { images: images });
+                });
+              });
+            }
           }
         };
         const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
