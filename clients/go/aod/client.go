@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -221,9 +222,34 @@ func (r *EnvironmentsResource) RemoveSecret(ctx context.Context, envID, key stri
 	return r.c.request(ctx, "DELETE", "/environments/"+envID+"/secrets/"+key, nil, nil)
 }
 
+// ImageInput represents an image to attach to a prompt.
+// Data holds raw image bytes; the SDK encodes them to base64 before sending.
+type ImageInput struct {
+	Data      []byte `json:"-"`
+	MediaType string `json:"media_type"`
+}
+
+// imageInputWire is the JSON-serialisable form sent to the API.
+type imageInputWire struct {
+	Data      string `json:"data"`
+	MediaType string `json:"media_type"`
+}
+
+func encodeImages(images []ImageInput) []imageInputWire {
+	out := make([]imageInputWire, len(images))
+	for i, img := range images {
+		out[i] = imageInputWire{
+			Data:      base64.StdEncoding.EncodeToString(img.Data),
+			MediaType: img.MediaType,
+		}
+	}
+	return out
+}
+
 type ConversationCreate struct {
-	AgentID string `json:"agent_id"`
-	Prompt  string `json:"prompt"`
+	AgentID string       `json:"agent_id"`
+	Prompt  string       `json:"prompt"`
+	Images  []ImageInput `json:"-"` // encoded at request time
 }
 
 type ConversationsResource struct{ c *Client }
@@ -237,12 +263,26 @@ func (r *ConversationsResource) Get(ctx context.Context, id string) (*Conversati
 	return &out, r.c.request(ctx, "GET", "/conversations/"+id, nil, &out)
 }
 func (r *ConversationsResource) Create(ctx context.Context, req ConversationCreate) (*Conversation, error) {
+	body := map[string]any{
+		"agent_id": req.AgentID,
+		"prompt":   req.Prompt,
+	}
+	if len(req.Images) > 0 {
+		body["images"] = encodeImages(req.Images)
+	}
 	var out Conversation
-	return &out, r.c.request(ctx, "POST", "/conversations", req, &out)
+	return &out, r.c.request(ctx, "POST", "/conversations", body, &out)
 }
-func (r *ConversationsResource) Prompt(ctx context.Context, id, prompt string) (map[string]any, error) {
+
+// Prompt sends a new prompt to an existing conversation. Pass images to
+// attach them; the SDK handles base64 encoding.
+func (r *ConversationsResource) Prompt(ctx context.Context, id, prompt string, images ...ImageInput) (map[string]any, error) {
+	body := map[string]any{"prompt": prompt}
+	if len(images) > 0 {
+		body["images"] = encodeImages(images)
+	}
 	var out map[string]any
-	return out, r.c.request(ctx, "POST", "/conversations/"+id+"/prompts", map[string]string{"prompt": prompt}, &out)
+	return out, r.c.request(ctx, "POST", "/conversations/"+id+"/prompts", body, &out)
 }
 func (r *ConversationsResource) Interrupt(ctx context.Context, id string) (*Conversation, error) {
 	var out Conversation
