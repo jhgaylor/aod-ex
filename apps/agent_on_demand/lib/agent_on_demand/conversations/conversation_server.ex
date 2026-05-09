@@ -222,7 +222,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
         runtime = (agent && agent.runtime) || "claude"
         AgentOnDemand.SpriteSkills.mount(sprite, runtime, skills)
 
-        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
+        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets, state.conversation_id)
 
         write_runtime_config(sprite, state.runtime_module, agent)
         AgentOnDemand.Conversations.Provisioning.write_env_file(sprite, sprite_env)
@@ -374,7 +374,7 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     case Sprites.get_sprite(client, sandbox.sprite_name) do
       {:ok, _info} ->
         sprite = Sprites.sprite(client, sandbox.sprite_name)
-        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets)
+        sprite_env = build_sprite_env(state.runtime_module, agent, env, secrets, state.conversation_id)
 
         # Refresh the .env file in case secrets/env_vars were edited
         # between the original provision and this reattach.
@@ -508,9 +508,10 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
     )
   end
 
-  defp build_sprite_env(runtime_module, agent, env, secrets) do
+  defp build_sprite_env(runtime_module, agent, env, secrets, conversation_id) do
     (runtime_module.default_env(agent) || []) ++
       aod_callback_env() ++
+      conversation_env(conversation_id) ++
       otel_propagation_env() ++
       git_author_env() ++
       if(env,
@@ -519,6 +520,11 @@ defmodule AgentOnDemand.Conversations.ConversationServer do
       ) ++
       Enum.map(secrets, fn {k, v} -> {k, v} end)
   end
+
+  # Inject the current conversation ID so the bundled aod skill can
+  # propagate it as X-AoD-Parent-Conversation-Id when spawning children.
+  defp conversation_env(nil), do: []
+  defp conversation_env(conv_id) when is_binary(conv_id), do: [{"AOD_CONVERSATION_ID", conv_id}]
 
   @doc false
   def git_author_env do

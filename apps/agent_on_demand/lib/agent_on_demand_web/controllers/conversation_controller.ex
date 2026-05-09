@@ -62,7 +62,8 @@ defmodule AgentOnDemandWeb.ConversationController do
     summary: "Start a conversation",
     description:
       "Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, " <>
-        "and (if `prompt` is supplied) sends it as turn 1.",
+        "and (if `prompt` is supplied) sends it as turn 1. " <>
+        "Pass `X-AoD-Parent-Conversation-Id` header to record which conversation spawned this one.",
     request_body: {"Conversation attrs", "application/json", Schemas.ConversationCreateRequest},
     responses: [
       created: {"Conversation", "application/json", Schemas.ConversationResponse},
@@ -73,12 +74,40 @@ defmodule AgentOnDemandWeb.ConversationController do
 
   def create(conn, params) do
     images = decode_images(params["images"])
-    params = Map.put(params, "images", images)
+
+    parent_header =
+      conn
+      |> get_req_header("x-aod-parent-conversation-id")
+      |> List.first()
+
+    {source, parent_id} = infer_provenance(parent_header)
+
+    params =
+      params
+      |> Map.put("images", images)
+      |> Map.put("source", source)
+      |> Map.put("parent_conversation_id", parent_id)
 
     with {:ok, conv} <- Conversations.start_conversation(params) do
       conn
       |> put_status(:created)
       |> render(:show, conversation: conv)
+    end
+  end
+
+  @doc """
+  Infer the conversation's `source` and `parent_conversation_id` from
+  the `X-AoD-Parent-Conversation-Id` header value (or `nil` if absent).
+
+  Pure function so the inference logic can be unit-tested without
+  going through the full `Conversations.start_conversation/1` pipeline
+  (which provisions a real Sprite).
+  """
+  @spec infer_provenance(String.t() | nil) :: {String.t(), String.t() | nil}
+  def infer_provenance(parent_header) do
+    case parent_header do
+      id when is_binary(id) and byte_size(id) > 0 -> {"agent", id}
+      _ -> {"api", nil}
     end
   end
 
