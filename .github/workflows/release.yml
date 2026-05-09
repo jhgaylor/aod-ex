@@ -11,33 +11,88 @@ on:
 
 env:
   MIX_ENV: prod
-  # Match the target ERTS in mix.exs (custom_erts URLs pin OTP 28.4).
-  # Different local vs. target versions land BEAMs and NIFs from
-  # different OTPs into the same release and the runtime crashes
-  # at first stdio with `Function not found prim_tty:tty_create/1`.
   ELIXIR_VERSION: "1.19.5"
+  # OTP_VERSION is for setup-beam (macOS cross-build only). Patch
+  # gets resolved by setup-beam to whatever 28.4.x is current; the
+  # actual ERTS bundled into the macos release comes from
+  # custom_erts: in mix.exs (vendor-erts-otp-28.4 release).
   OTP_VERSION: "28.4"
   ZIG_VERSION: "0.15.2"
+  # The hexpm/elixir Alpine image used for the linux build. The
+  # build host MUST be musl — `custom_erts:` does not swap NIFs
+  # (crypto.so etc.), so a glibc OTP install at build time produces
+  # a binary that fails on Sprites with `__memcpy_chk: symbol not
+  # found` (musl has no fortified glibc symbols). See v0.2.11/v0.2.12.
+  ALPINE_BUILD_IMAGE: "hexpm/elixir:1.19.5-erlang-28.4.3-alpine-3.21.7"
 
 jobs:
-  build:
-    name: Build cross-platform binaries
+  build-linux:
+    name: Build linux/x86_64 (Alpine native)
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve tag
-        id: tag
+      # sprites-ex is a sibling path dep — see ci.yml for the same shim.
+      - name: Clone sprites-ex (sibling path dep)
+        run: git clone --depth 1 https://github.com/ravi-hq/sprites-ex.git ../sprites-ex
+
+      - name: Build inside Alpine container
+        env:
+          IMAGE: ${{ env.ALPINE_BUILD_IMAGE }}
+          ZIG: ${{ env.ZIG_VERSION }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
+          set -euxo pipefail
+          docker pull "$IMAGE"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work/aod-ex" \
+            -v "$(realpath "$GITHUB_WORKSPACE/../sprites-ex"):/work/sprites-ex" \
+            -w /work/aod-ex \
+            -e MIX_ENV=prod \
+            -e BURRITO_TARGETS=linux \
+            -e ZIG_VERSION="$ZIG" \
+            "$IMAGE" \
+            sh -eux -c '
+              apk add --no-cache git curl tar xz bash build-base
+              curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+                | tar -xJ -C /tmp
+              export PATH="/tmp/zig-x86_64-linux-${ZIG_VERSION}:$PATH"
+              zig version
+              mix local.hex --force
+              mix local.rebar --force
+              mix deps.get --only prod
+              mix release aod --overwrite
+              mix release aod_server --overwrite
+            '
+
+      - name: Stage linux assets
+        run: |
+          set -euxo pipefail
+          # Files written by the Alpine container are root-owned. Reclaim
+          # them so cp/chmod don't trip on permissions.
+          sudo chown -R "$(id -u):$(id -g)" burrito_out _build deps 2>/dev/null || true
+          mkdir -p release-assets
+          cp burrito_out/aod_linux         release-assets/aod-linux-x86_64
+          cp burrito_out/aod_server_linux  release-assets/aod-server-linux-x86_64
+          chmod +x release-assets/*
+          ls -la release-assets/
+
+      - name: Upload linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: release-assets/
+          retention-days: 1
+
+  build-macos:
+    name: Build macos/aarch64 (cross-compile)
+    runs-on: ubuntu-latest
+
+    env:
+      BURRITO_TARGETS: macos
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up Erlang + Elixir
         uses: erlef/setup-beam@v1
@@ -45,10 +100,6 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
           elixir-version: ${{ env.ELIXIR_VERSION }}
 
-      # Burrito cross-builds via Zig. The Burrito custom_erts URLs
-      # (mix.exs) point at OTP 28.4 musl/macos universal tarballs;
-      # Zig 0.15.2 is the version those workarounds were written
-      # against (see docs/deploy.md).
       - name: Set up Zig ${{ env.ZIG_VERSION }}
         run: |
           curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
@@ -56,10 +107,6 @@ jobs:
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
           "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
 
-      # sprites-ex is a sibling path dep — same shim as ci.yml.
-      # Raw git clone because actions/checkout refuses paths outside
-      # $GITHUB_WORKSPACE. Uses ravi-hq fork which has filesystem + attach_session
-      # URL fixes not yet merged into superfly/sprites-ex upstream.
       - name: Clone sprites-ex (sibling path dep)
         run: git clone --depth 1 https://github.com/ravi-hq/sprites-ex.git ../sprites-ex
 
@@ -69,34 +116,65 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-release-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-release-macos-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-release-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            ${{ runner.os }}-release-macos-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
 
       - name: Install deps
         run: mix deps.get --only prod
 
-      - name: Build releases (CLI + server, linux + macos for each)
+      - name: Build macOS releases
         run: |
           mix release aod --overwrite
           mix release aod_server --overwrite
 
-      - name: Inspect output
-        run: ls -la burrito_out/
-
-      - name: Stage assets
-        id: stage
+      - name: Stage macOS assets
         run: |
           mkdir -p release-assets
-          # Burrito names the binaries `<release_name>_<target>`. We
-          # rename to include the OS+arch in the filename so the
-          # release page is unambiguous.
-          cp burrito_out/aod_linux         "release-assets/aod-linux-x86_64"
-          cp burrito_out/aod_macos         "release-assets/aod-macos-aarch64"
-          cp burrito_out/aod_server_linux  "release-assets/aod-server-linux-x86_64"
-          cp burrito_out/aod_server_macos  "release-assets/aod-server-macos-aarch64"
+          cp burrito_out/aod_macos        release-assets/aod-macos-aarch64
+          cp burrito_out/aod_server_macos release-assets/aod-server-macos-aarch64
           chmod +x release-assets/*
           ls -la release-assets/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: release-assets/
+          retention-days: 1
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
+          path: release-assets/
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binaries
+          path: release-assets/
+
+      - name: Inspect output
+        run: ls -la release-assets/
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
