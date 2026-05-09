@@ -2,6 +2,10 @@ defmodule AgentOnDemand.UpdateCheckerTest do
   use ExUnit.Case, async: false
   use Mimic
 
+  # The UpdateChecker GenServer runs in a separate process; global mode lets
+  # stubs set in the test process propagate to that process automatically.
+  setup_all :set_mimic_global
+
   alias AgentOnDemand.{GithubReleases, UpdateChecker}
 
   describe "get_status/1" do
