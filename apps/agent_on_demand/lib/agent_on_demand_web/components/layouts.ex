@@ -12,6 +12,33 @@ defmodule AgentOnDemandWeb.Layouts do
     ~H"""
     <main class="min-h-screen bg-zinc-50 text-zinc-900">
       <.flash_group flash={@flash} />
+
+      <%!-- Update available banner --%>
+      <div
+        :if={not is_nil(assigns[:update_status]) and assigns.update_status.has_update}
+        class="bg-blue-600 text-white px-4 py-2 flex items-center justify-between text-sm"
+      >
+        <span>
+          &#11014; Version {@update_status.latest_version} is available
+          <span class="text-blue-200 text-xs ml-2">(current: {@update_status.current_version})</span>
+        </span>
+        <div class="flex items-center gap-3">
+          <button
+            phx-click="check_for_updates"
+            disabled={assigns[:update_status] && assigns.update_status.checking}
+            class="text-blue-100 hover:text-white underline text-xs disabled:opacity-50"
+          >
+            <%= if assigns[:update_status] && assigns.update_status.checking, do: "Checking…", else: "Check for updates" %>
+          </button>
+          <button
+            phx-click="upgrade"
+            class="bg-white text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-medium"
+          >
+            Upgrade
+          </button>
+        </div>
+      </div>
+
       <div class="flex">
         <aside class="hidden md:flex flex-col w-56 h-screen sticky top-0 border-r border-zinc-200 bg-white">
           <div class="p-4 border-b border-zinc-200 shrink-0">
@@ -50,6 +77,17 @@ defmodule AgentOnDemandWeb.Layouts do
             <a href={~p"/logout"} data-method="post" class="block px-3 py-1 hover:text-zinc-800">Sign out</a>
             <button onclick="window.toggleCheatsheet && window.toggleCheatsheet()" class="block w-full text-left px-3 py-1 hover:text-zinc-800">
               Shortcuts <kbd class="ml-1 px-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] font-mono">?</kbd>
+            </button>
+            <button
+              phx-click="check_for_updates"
+              disabled={not is_nil(assigns[:update_status]) and assigns.update_status.checking}
+              class="block w-full text-left px-3 py-1 hover:text-zinc-800 disabled:opacity-50"
+            >
+              <%= cond do %>
+                <% not is_nil(assigns[:update_status]) and assigns.update_status.checking -> %>Checking…
+                <% not is_nil(assigns[:update_status]) and assigns.update_status.has_update -> %>Update available &#11014;
+                <% true -> %>Check for updates
+              <% end %>
             </button>
           </div>
         </aside>
