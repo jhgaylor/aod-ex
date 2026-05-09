@@ -71,6 +71,7 @@ nav:
   - Home: index.md
   - Why: why.md
   - How it works: how-it-works.md
+  - Spec-driven development: spec-driven.md
   - Examples: examples.md
   - Docs:
       - Install: install.md
