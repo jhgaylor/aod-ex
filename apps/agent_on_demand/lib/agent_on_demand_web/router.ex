@@ -58,7 +58,11 @@ defmodule AgentOnDemandWeb.Router do
   scope "/", AgentOnDemandWeb do
     pipe_through [:browser, :authed_browser]
 
-    live_session :ui, on_mount: {AgentOnDemandWeb.Plugs.SessionAuth, :require_admin} do
+    live_session :ui,
+      on_mount: [
+        {AgentOnDemandWeb.Plugs.SessionAuth, :require_admin},
+        {AgentOnDemandWeb.Hooks.UpdateCheckerHook, :default}
+      ] do
       live "/", ConversationsLive.Index, :index
       live "/conversations/new", ConversationsLive.New, :new
       live "/conversations/:id", ConversationsLive.Show, :show
@@ -75,6 +79,13 @@ defmodule AgentOnDemandWeb.Router do
       live "/help", HelpLive.Show, :index
       live "/help/:topic", HelpLive.Show, :show
     end
+  end
+
+  # Admin actions (session-authenticated)
+  scope "/admin", AgentOnDemandWeb do
+    pipe_through [:browser, :authed_browser]
+
+    post "/upgrade", AdminController, :upgrade
   end
 
   scope "/api", AgentOnDemandWeb do

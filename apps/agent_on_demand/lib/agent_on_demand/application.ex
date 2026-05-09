@@ -44,7 +44,8 @@ defmodule AgentOnDemand.Application do
              members: :auto
            ]},
           AgentOnDemandWeb.Endpoint
-        ]
+        ] ++
+        maybe_update_checker()
 
     opts = [strategy: :one_for_one, name: AgentOnDemand.Supervisor]
 
@@ -87,5 +88,13 @@ defmodule AgentOnDemand.Application do
   # BEAM stop.
   defp skip_rehydrate? do
     Application.get_env(:agent_on_demand, :skip_rehydrate, false)
+  end
+
+  defp maybe_update_checker do
+    if Application.get_env(:agent_on_demand, :start_update_checker, true) do
+      [AgentOnDemand.UpdateChecker]
+    else
+      []
+    end
   end
 end

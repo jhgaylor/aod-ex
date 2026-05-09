@@ -21,6 +21,10 @@ config :agent_on_demand, AgentOnDemandWeb.Endpoint,
 # Sprites API. Tests start servers explicitly with mocked sprites.
 config :agent_on_demand, :skip_rehydrate, true
 
+# Don't start UpdateChecker in tests — it would poll GitHub and pollute test state.
+# Tests stub AgentOnDemand.UpdateChecker via Mimic instead.
+config :agent_on_demand, :start_update_checker, false
+
 # Disable async checkpoint creation in tests; the Task can outlive the
 # test process and try to update the DB after the Ecto sandbox has been
 # released.
