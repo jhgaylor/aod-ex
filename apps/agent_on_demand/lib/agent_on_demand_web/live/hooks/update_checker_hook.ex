@@ -1,6 +1,7 @@
 defmodule AgentOnDemandWeb.Hooks.UpdateCheckerHook do
   @moduledoc false
 
+  import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView
   alias AgentOnDemand.{UpdateChecker, Upgrader}
 

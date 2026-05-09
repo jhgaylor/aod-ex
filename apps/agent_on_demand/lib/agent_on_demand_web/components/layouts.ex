@@ -13,7 +13,7 @@ defmodule AgentOnDemandWeb.Layouts do
     <main class="min-h-screen bg-zinc-50 text-zinc-900">
       <.flash_group flash={@flash} />
 
-      <%# Update available banner %>
+      <%!-- Update available banner --%>
       <div
         :if={not is_nil(assigns[:update_status]) and assigns.update_status.has_update}
         class="bg-blue-600 text-white px-4 py-2 flex items-center justify-between text-sm"
