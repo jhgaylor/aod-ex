@@ -41,4 +41,90 @@ defmodule AgentOnDemand.AgentsTest do
       end
     end
   end
+
+  describe "list_agents/1 filtering" do
+    test "returns all agents when called with empty keyword list" do
+      a = insert_agent(%{})
+      b = insert_agent(%{})
+      ids = Agents.list_agents([]) |> Enum.map(& &1.id)
+      assert a.id in ids
+      assert b.id in ids
+    end
+
+    test "search filters by name substring — case-insensitive" do
+      other = insert_agent(%{"name" => "zz-unrelated"})
+      match = insert_agent(%{"name" => "My-Cool-Agent"})
+
+      results = Agents.list_agents(search: "cool")
+      assert Enum.any?(results, & &1.id == match.id)
+      refute Enum.any?(results, & &1.id == other.id)
+    end
+
+    test "search returns all agents when search string is empty" do
+      a = insert_agent(%{})
+      results = Agents.list_agents(search: "")
+      assert Enum.any?(results, & &1.id == a.id)
+    end
+
+    test "runtimes filter returns only agents with matching runtime" do
+      claude = insert_agent(%{"runtime" => "claude"})
+      codex = insert_agent(%{"runtime" => "codex"})
+
+      results = Agents.list_agents(runtimes: ["claude"])
+      assert Enum.any?(results, & &1.id == claude.id)
+      refute Enum.any?(results, & &1.id == codex.id)
+    end
+
+    test "runtimes filter returns all agents when list is empty" do
+      a = insert_agent(%{})
+      results = Agents.list_agents(runtimes: [])
+      assert Enum.any?(results, & &1.id == a.id)
+    end
+
+    test "env_ids 'none' filters to agents with no environment" do
+      no_env = insert_agent(%{})
+      env = insert_env()
+      with_env = insert_agent(%{"environment_id" => env.id})
+
+      results = Agents.list_agents(env_ids: ["none"])
+      assert Enum.any?(results, & &1.id == no_env.id)
+      refute Enum.any?(results, & &1.id == with_env.id)
+    end
+
+    test "env_ids with real id filters to agents with that environment" do
+      env = insert_env()
+      with_env = insert_agent(%{"environment_id" => env.id})
+      no_env = insert_agent(%{})
+
+      results = Agents.list_agents(env_ids: [env.id])
+      assert Enum.any?(results, & &1.id == with_env.id)
+      refute Enum.any?(results, & &1.id == no_env.id)
+    end
+
+    test "has_skills filters to agents with at least one skill" do
+      with_skills =
+        insert_agent(%{
+          "skills" => [%{"name" => "test-skill", "content" => "# SKILL\nDoes stuff.\n"}]
+        })
+
+      bare = insert_agent(%{})
+
+      results = Agents.list_agents(has_skills: true)
+      assert Enum.any?(results, & &1.id == with_skills.id)
+      refute Enum.any?(results, & &1.id == bare.id)
+    end
+
+    test "has_mcp filters to agents with at least one MCP server" do
+      with_mcp =
+        insert_agent(%{
+          "mcp_servers" => %{"my_server" => %{"command" => "npx foo"}}
+        })
+
+      bare = insert_agent(%{})
+
+      results = Agents.list_agents(has_mcp: true)
+      assert Enum.any?(results, & &1.id == with_mcp.id)
+      refute Enum.any?(results, & &1.id == bare.id)
+    end
+  end
 end
