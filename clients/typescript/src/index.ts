@@ -99,9 +99,16 @@ class EnvironmentsResource {
     this.c._request<void>("DELETE", `/environments/${id}/secrets/${key}`);
 }
 
+export interface ImageInput {
+  /** Raw image bytes or base64-encoded string. */
+  data: Uint8Array | string;
+  media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
 interface ConversationCreate {
   agent_id: string;
   prompt: string;
+  images?: ImageInput[];
 }
 
 interface StreamOpts {
@@ -116,9 +123,18 @@ class ConversationsResource {
 
   list = () => this.c._request<any[]>("GET", "/conversations");
   get = (id: string) => this.c._request<any>("GET", `/conversations/${id}`);
-  create = (req: ConversationCreate) => this.c._request<any>("POST", "/conversations", req);
-  prompt = (id: string, prompt: string) =>
-    this.c._request<any>("POST", `/conversations/${id}/prompts`, { prompt });
+
+  create = (req: ConversationCreate) => {
+    const body: any = { ...req };
+    if (req.images?.length) body.images = encodeImages(req.images);
+    return this.c._request<any>("POST", "/conversations", body);
+  };
+
+  prompt = (id: string, prompt: string, images?: ImageInput[]) => {
+    const body: any = { prompt };
+    if (images?.length) body.images = encodeImages(images);
+    return this.c._request<any>("POST", `/conversations/${id}/prompts`, body);
+  };
   interrupt = (id: string) => this.c._request<any>("POST", `/conversations/${id}/interrupt`);
   terminate = (id: string) => this.c._request<any>("POST", `/conversations/${id}/terminate`);
   delete = (id: string) => this.c._request<void>("DELETE", `/conversations/${id}`);
@@ -188,6 +204,23 @@ class ConversationsResource {
       await new Promise((r) => setTimeout(r, interval));
     }
   }
+}
+
+function encodeImages(images: ImageInput[]): { data: string; media_type: string }[] {
+  return images.map((img) => {
+    let data: string;
+    if (typeof img.data === "string") {
+      data = img.data;
+    } else {
+      // Encode Uint8Array to base64
+      let binary = "";
+      for (let i = 0; i < img.data.length; i++) {
+        binary += String.fromCharCode(img.data[i]);
+      }
+      data = btoa(binary);
+    }
+    return { data, media_type: img.media_type };
+  });
 }
 
 function parseSSEBlock(block: string): AodEvent | null {
