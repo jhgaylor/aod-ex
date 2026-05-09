@@ -45,6 +45,56 @@ defmodule AgentOnDemand.ConversationsTest do
     end
   end
 
+  describe "list_conversations_by_activity" do
+    test "returns all conversations ordered by updated_at desc" do
+      import Ecto.Query
+      alias AgentOnDemand.Conversations.Conversation
+
+      c_old = insert_conversation(status: "completed")
+      c_new = insert_conversation(status: "idle")
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      older = DateTime.add(now, -100, :second)
+      newer = DateTime.add(now, -10, :second)
+
+      Repo.update_all(from(c in Conversation, where: c.id == ^c_old.id),
+        set: [updated_at: older])
+      Repo.update_all(from(c in Conversation, where: c.id == ^c_new.id),
+        set: [updated_at: newer])
+
+      ids = Conversations.list_conversations_by_activity() |> Enum.map(& &1.id)
+
+      first_index = Enum.find_index(ids, &(&1 == c_new.id))
+      old_index = Enum.find_index(ids, &(&1 == c_old.id))
+
+      assert first_index < old_index
+    end
+
+    test "includes conversations in all statuses" do
+      completed = insert_conversation(status: "completed")
+      terminated = insert_conversation(status: "terminated")
+      running = insert_conversation(status: "running")
+
+      ids = Conversations.list_conversations_by_activity() |> Enum.map(& &1.id)
+
+      assert completed.id in ids
+      assert terminated.id in ids
+      assert running.id in ids
+    end
+
+    test "preloads agent and first turn" do
+      agent = insert_agent()
+      conv = insert_conversation(agent: agent)
+      insert_turn(conv, turn_number: 1, prompt: "hello")
+
+      result = Conversations.list_conversations_by_activity()
+      found = Enum.find(result, &(&1.id == conv.id))
+
+      assert found.agent.id == agent.id
+      assert [%{turn_number: 1}] = found.turns
+    end
+  end
+
   describe "turns" do
     test "next_turn_number increments per conversation" do
       a = insert_conversation()
