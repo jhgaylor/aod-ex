@@ -12,6 +12,8 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Conversations")
+     |> assign(:sort_by, :inserted_at)
+     |> assign(:sort_dir, :desc)
      |> load_data()}
   end
 
@@ -40,15 +42,48 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
     end
   end
 
+  def handle_event("sort", %{"by" => field_str}, socket) do
+    field = parse_sort_field(field_str)
+
+    {sort_by, sort_dir} =
+      if socket.assigns.sort_by == field do
+        {field, toggle_dir(socket.assigns.sort_dir)}
+      else
+        {field, :desc}
+      end
+
+    {:noreply,
+     socket
+     |> assign(sort_by: sort_by, sort_dir: sort_dir)
+     |> load_data()}
+  end
+
   defp load_data(socket) do
     convs = Conversations.list_conversations()
     agents = Agents.list_agents()
 
+    sorted = sort_conversations(convs, socket.assigns.sort_by, socket.assigns.sort_dir)
+
     assign(socket,
-      conversations: convs,
+      conversations: sorted,
       agents_by_id: Map.new(agents, &{&1.id, &1})
     )
   end
+
+  defp sort_conversations(convs, field, :asc) do
+    Enum.sort_by(convs, &Map.get(&1, field), DateTime)
+  end
+
+  defp sort_conversations(convs, field, :desc) do
+    Enum.sort_by(convs, &Map.get(&1, field), {:desc, DateTime})
+  end
+
+  defp toggle_dir(:asc), do: :desc
+  defp toggle_dir(:desc), do: :asc
+
+  defp parse_sort_field("inserted_at"), do: :inserted_at
+  defp parse_sort_field("updated_at"), do: :updated_at
+  defp parse_sort_field(_), do: :inserted_at
 
   @impl true
   def render(assigns) do
@@ -69,10 +104,19 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
         <thead class="text-left text-zinc-500 border-b border-zinc-200">
           <tr>
             <th class="px-4 py-2">Status</th>
-            <th class="px-4 py-2 w-64">Task</th>
+            <th class="px-4 py-2">Task</th>
             <th class="px-4 py-2">Agent</th>
             <th class="px-4 py-2">Runtime</th>
-            <th class="px-4 py-2">Started</th>
+            <th
+              class={["px-4 py-2 cursor-pointer select-none whitespace-nowrap", @sort_by == :inserted_at && "text-zinc-900 font-medium"]}
+              phx-click="sort"
+              phx-value-by="inserted_at"
+            >Started {sort_arrow(@sort_by, @sort_dir, :inserted_at)}</th>
+            <th
+              class={["px-4 py-2 cursor-pointer select-none whitespace-nowrap", @sort_by == :updated_at && "text-zinc-900 font-medium"]}
+              phx-click="sort"
+              phx-value-by="updated_at"
+            >Last active {sort_arrow(@sort_by, @sort_dir, :updated_at)}</th>
             <th class="px-4 py-2"></th>
           </tr>
         </thead>
@@ -82,7 +126,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
             <td class="px-4 py-2 text-zinc-700">
               <%= case first_prompt(c) do %>
                 <% nil -> %><span class="text-zinc-400">—</span>
-                <% prompt -> %><span class="block truncate" title={prompt}>{prompt}</span>
+                <% prompt -> %><span class="block line-clamp-2" title={prompt}>{prompt}</span>
               <% end %>
             </td>
             <td class="px-4 py-2">
@@ -93,6 +137,7 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
             </td>
             <td class="px-4 py-2 text-zinc-600">{c.runtime}</td>
             <td class="px-4 py-2 text-zinc-500">{relative_time(c.inserted_at)}</td>
+            <td class="px-4 py-2 text-zinc-500">{relative_time(c.updated_at)}</td>
             <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
               <.btn_danger :if={c.status not in ["terminated", "completed", "failed"]}
                 phx-click="terminate" phx-value-id={c.id}
@@ -143,4 +188,10 @@ defmodule AgentOnDemandWeb.ConversationsLive.Index do
         prompt |> String.trim() |> String.replace(~r/\s+/, " ")
     end
   end
+
+  defp sort_arrow(current, dir, field) when current == field do
+    if dir == :asc, do: "↑", else: "↓"
+  end
+
+  defp sort_arrow(_current, _dir, _field), do: "↕"
 end

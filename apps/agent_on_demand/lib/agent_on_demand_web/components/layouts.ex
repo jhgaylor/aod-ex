@@ -6,7 +6,7 @@ defmodule AgentOnDemandWeb.Layouts do
   alias AgentOnDemand.Conversations
 
   def app(assigns) do
-    convs = Conversations.list_active_conversations()
+    convs = Conversations.list_conversations_by_activity()
     assigns = assign(assigns, :nav_conversations, convs)
 
     ~H"""
@@ -25,7 +25,7 @@ defmodule AgentOnDemandWeb.Layouts do
 
           <nav class="px-2 py-1 text-sm flex-1 min-h-0 overflow-y-auto">
             <div :if={@nav_conversations == []} class="px-3 py-2 text-xs text-zinc-400 italic">
-              no active conversations
+              no conversations
             </div>
             <%= for conv <- @nav_conversations do %>
               <.conv_nav_link conv={conv} current={@current_path}/>
@@ -98,7 +98,7 @@ defmodule AgentOnDemandWeb.Layouts do
     agent_name = assigns.conv.agent && assigns.conv.agent.name
 
     meta =
-      [agent_name, assigns.conv.runtime, sidebar_relative_time(assigns.conv.inserted_at)]
+      [agent_name, assigns.conv.runtime, sidebar_relative_time(assigns.conv.updated_at)]
       |> Enum.reject(&is_nil/1)
       |> Enum.join(" · ")
 
