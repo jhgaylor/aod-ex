@@ -8,6 +8,8 @@ The root cause: prompts are a lossy encoding of requirements. They're ephemeral,
 
 Specs fix this.
 
+**[Try the interactive demo &rarr;](spec-driven-demo.html)**{ .md-button .md-button--primary }
+
 ## What changes with specs
 
 A spec is a structured requirement with a stable ID. Something like [acai.sh](https://acai.sh)'s `feature.yaml`:
@@ -101,7 +103,7 @@ jobs:
               -H 'content-type: application/json' \
               -d "{
                 \"agent_id\": \"$SPEC_IMPLEMENTER_AGENT_ID\",
-                \"prompt\": \"Implement the following spec ($spec_id). Open a branch, implement each acceptance criterion, tag each with a comment containing the spec ID, and open a PR when done.\\n\\n$spec_content\"
+                \"prompt\": \"Implement spec $spec_id. Tag each criterion with a comment containing the spec ID. Open a PR when done.\\n\\n$spec_content\"
               }" | jq -r '.id')
 
             echo "Triggered conversation $conv_id for spec $spec_id"
