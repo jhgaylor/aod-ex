@@ -7,463 +7,1176 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    * { font-family: 'Inter', sans-serif; }
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
     code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
-    .log-line { opacity: 0; transform: translateY(4px); transition: opacity 0.15s ease, transform 0.15s ease; }
-    .log-line.visible { opacity: 1; transform: translateY(0); }
-    .criteria-item { transition: background 0.2s ease; }
-    ::-webkit-scrollbar { width: 6px; } 
-    ::-webkit-scrollbar-track { background: #1e1e2e; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #3730a3; border-radius: 3px; }
-    .status-pill { display: inline-flex; align-items: center; gap: 4px; }
-    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .pulse-dot.running { background: #f59e0b; animation: pulse 1.5s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.5; transform:scale(0.85); } }
-    .spec-row { cursor: pointer; transition: background 0.15s; }
-    .spec-row:hover { background: rgba(99,102,241,0.08); }
-    .spec-row.active { background: rgba(99,102,241,0.15); border-left: 3px solid #6366f1; }
-    .coverage-bar-fill { transition: width 1s cubic-bezier(0.4,0,0.2,1); }
-    .tab { cursor: pointer; padding: 8px 16px; border-bottom: 2px solid transparent; transition: all 0.15s; color: #94a3b8; }
-    .tab.active { border-color: #6366f1; color: #e2e8f0; }
-    .tab:hover:not(.active) { color: #cbd5e1; }
+    .log-line { opacity: 0; transform: translateY(3px); transition: opacity 0.12s ease, transform 0.12s ease; }
+    .log-line.visible { opacity: 1; transform: translateY(0); }
+    .pulse { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+    .fade-in { animation: fadeIn .4s ease forwards; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .spec-row { cursor:pointer; transition:background .12s; }
+    .spec-row:hover { background:rgba(99,102,241,.08); }
+    .spec-row.active { background:rgba(99,102,241,.15); border-left:3px solid #6366f1; }
+    .tab-btn { cursor:pointer; padding:8px 18px; border-bottom:2px solid transparent; transition:all .15s; color:#64748b; font-size:.8rem; white-space:nowrap; }
+    .tab-btn.active { border-color:#6366f1; color:#e2e8f0; }
+    .tab-btn:hover:not(.active) { color:#94a3b8; }
+    .nav-btn { cursor:pointer; padding:7px 16px; border-radius:6px; font-size:.8rem; font-weight:500; transition:all .15s; color:#64748b; }
+    .nav-btn.active { background:rgba(99,102,241,.2); color:#a5b4fc; }
+    .nav-btn:hover:not(.active) { background:rgba(255,255,255,.05); color:#94a3b8; }
+    .agent-node { transition:all .3s ease; }
+    .conn-line { stroke-dasharray: 6 4; animation: dash 1s linear infinite; }
+    @keyframes dash { to { stroke-dashoffset: -20; } }
+    .coverage-fill { transition: width 1s cubic-bezier(.4,0,.2,1); }
+    .card { background:#0f172a; border:1px solid #1e293b; border-radius:10px; }
+    .glow { box-shadow: 0 0 20px rgba(99,102,241,.15); }
+    pre { white-space: pre-wrap; word-break: break-all; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-200 min-h-screen flex flex-col">
+<body class="bg-slate-950 text-slate-200 min-h-screen flex flex-col text-sm">
 
-  <!-- Header -->
-  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between flex-shrink-0">
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">A</div>
-      <div>
-        <div class="font-semibold text-slate-100 text-sm">Agent on Demand</div>
-        <div class="text-xs text-slate-500">Spec-Driven Development Demo &mdash; <span class="text-indigo-400">acai.sh</span> integration</div>
-      </div>
+<!-- HEADER -->
+<header class="border-b border-slate-800 px-5 py-3 flex items-center justify-between flex-shrink-0">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">A</div>
+    <div>
+      <span class="font-semibold text-slate-100">Agent on Demand</span>
+      <span class="text-slate-600 mx-2">×</span>
+      <span class="text-indigo-400">acai.sh</span>
+      <span class="text-slate-600 text-xs ml-2">Spec-Driven Development</span>
     </div>
-    <div class="flex items-center gap-6 text-xs text-slate-400">
-      <div class="flex items-center gap-2">
-        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-        <span>4 specs</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
-        <span>1 agent running</span>
-      </div>
-      <div class="text-slate-500">Coverage: <span id="global-coverage" class="text-slate-200 font-medium">69%</span></div>
-    </div>
-  </header>
+  </div>
+  <div class="flex items-center gap-1 bg-slate-900 rounded-lg p-1" id="main-nav">
+    <div class="nav-btn active" onclick="showView('specs')">Specs</div>
+    <div class="nav-btn" onclick="showView('orchestration')">Orchestration</div>
+    <div class="nav-btn" onclick="showView('wiring')">Agent Wiring</div>
+    <div class="nav-btn" onclick="showView('integration')">Integration</div>
+  </div>
+</header>
 
-  <!-- Pipeline flow -->
-  <div class="border-b border-slate-800 px-6 py-3 flex items-center gap-1 text-xs overflow-x-auto flex-shrink-0">
-    <span class="text-slate-500 mr-2 flex-shrink-0">Lifecycle:</span>
-    <div class="flex items-center gap-1 flex-shrink-0">
-      <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400">Draft</span>
-      <span class="text-slate-600">&rarr;</span>
-      <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300">Assigned</span>
-      <span class="text-slate-600">&rarr;</span>
-      <span class="px-2 py-0.5 rounded bg-amber-900/60 text-amber-300">Agent Running</span>
-      <span class="text-slate-600">&rarr;</span>
-      <span class="px-2 py-0.5 rounded bg-blue-900/60 text-blue-300">Implemented</span>
-      <span class="text-slate-600">&rarr;</span>
-      <span class="px-2 py-0.5 rounded bg-violet-900/60 text-violet-300">In Review</span>
-      <span class="text-slate-600">&rarr;</span>
-      <span class="px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300">Accepted</span>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- VIEW: SPECS -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="view-specs" class="flex flex-1 min-h-0">
+  <!-- Pipeline strip -->
+  <div class="absolute top-[52px] left-0 right-0 border-b border-slate-800 bg-slate-950 px-5 py-2 flex items-center gap-1 text-xs z-10" style="top:52px;position:sticky">
+    <span class="text-slate-600 mr-2 flex-shrink-0">Lifecycle:</span>
+    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400">Draft</span>
+    <span class="text-slate-700">→</span>
+    <span class="px-2 py-0.5 rounded bg-amber-900/50 text-amber-300">Agent Running</span>
+    <span class="text-slate-700">→</span>
+    <span class="px-2 py-0.5 rounded bg-blue-900/50 text-blue-300">Implemented</span>
+    <span class="text-slate-700">→</span>
+    <span class="px-2 py-0.5 rounded bg-violet-900/50 text-violet-300">In Review</span>
+    <span class="text-slate-700">→</span>
+    <span class="px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300">Accepted</span>
+    <div class="ml-auto flex items-center gap-4 text-slate-500">
+      <span>Coverage: <span class="text-slate-200 font-medium">69%</span></span>
+      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 pulse inline-block"></span>1 running</span>
     </div>
   </div>
 
-  <!-- Main content -->
-  <div class="flex flex-1 min-h-0">
+  <!-- Sidebar -->
+  <aside class="w-64 border-r border-slate-800 flex flex-col flex-shrink-0 overflow-y-auto mt-9">
+    <div class="px-4 py-2 border-b border-slate-800 flex items-center justify-between">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Specs</span>
+      <span class="text-xs text-indigo-400 cursor-pointer hover:text-indigo-300" onclick="toast('In the real integration, committing a new feature.yaml triggers an agent automatically via CI.')">+ New</span>
+    </div>
+    <div id="spec-list"></div>
+  </aside>
 
-    <!-- Spec sidebar -->
-    <aside class="w-72 border-r border-slate-800 flex flex-col flex-shrink-0 overflow-y-auto">
-      <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Specs</span>
-        <button onclick="showNewSpecToast()" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">+ New</button>
+  <!-- Detail -->
+  <main class="flex-1 flex flex-col min-w-0 overflow-hidden mt-9">
+    <div id="spec-header" class="px-5 py-4 border-b border-slate-800 flex-shrink-0">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span id="d-id" class="mono text-xs text-indigo-400 font-medium"></span>
+            <span id="d-status"></span>
+          </div>
+          <div id="d-title" class="text-base font-semibold text-slate-100"></div>
+          <div id="d-desc" class="text-xs text-slate-400 mt-1"></div>
+        </div>
+        <button id="trigger-btn" onclick="triggerAgent()" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed">Trigger Agent</button>
       </div>
-      <div id="spec-list" class="flex-1"></div>
-    </aside>
+      <div class="mt-3">
+        <div class="flex justify-between text-xs text-slate-500 mb-1">
+          <span>Criteria coverage</span><span id="d-cov-label"></span>
+        </div>
+        <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div id="d-cov-bar" class="h-full coverage-fill rounded-full bg-indigo-500" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="flex border-b border-slate-800 px-5">
+      <div class="tab-btn active" id="stab-criteria" onclick="switchSpecTab('criteria')">Criteria</div>
+      <div class="tab-btn" id="stab-log" onclick="switchSpecTab('log')">Agent Log</div>
+      <div class="tab-btn" id="stab-refs" onclick="switchSpecTab('refs')">Code Refs</div>
+      <div class="tab-btn" id="stab-yaml" onclick="switchSpecTab('yaml')">feature.yaml</div>
+    </div>
+    <div class="flex-1 overflow-y-auto">
+      <div id="spane-criteria" class="p-5"></div>
+      <div id="spane-log" class="hidden p-5 mono text-xs leading-relaxed"></div>
+      <div id="spane-refs" class="hidden p-5"></div>
+      <div id="spane-yaml" class="hidden p-5"></div>
+    </div>
+  </main>
+</div>
 
-    <!-- Detail pane -->
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- VIEW: ORCHESTRATION -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="view-orchestration" class="hidden flex-1 flex flex-col overflow-hidden">
+  <div class="px-6 pt-5 pb-3 border-b border-slate-800 flex items-start justify-between">
+    <div>
+      <h2 class="font-semibold text-slate-100">Sub-agent Fan-out</h2>
+      <p class="text-xs text-slate-400 mt-1">A planning agent decomposes a high-level task into specs, then spawns parallel implementation agents — one per spec. Each runs in its own isolated sandbox via the bundled <code class="text-indigo-400">aod</code> skill.</p>
+    </div>
+    <button onclick="runOrchestration()" id="orch-btn" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors flex-shrink-0">Run Demo</button>
+  </div>
+  <div class="flex flex-1 min-h-0 overflow-hidden">
+    <!-- Left: flow diagram -->
+    <div class="w-1/2 border-r border-slate-800 overflow-y-auto p-6 flex flex-col gap-4">
 
-      <!-- Spec header -->
-      <div id="spec-header" class="px-6 py-4 border-b border-slate-800 flex-shrink-0">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-3 mb-1">
-              <span id="detail-id" class="mono text-xs text-indigo-400 font-medium"></span>
-              <span id="detail-status-pill"></span>
+      <!-- Task input -->
+      <div class="card p-4" id="orch-task">
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Task input</div>
+        <div class="text-slate-200 text-sm">&ldquo;Build the full user authentication system: magic link, OAuth via Google, and session management with refresh tokens.&rdquo;</div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flex items-center justify-center gap-2 text-slate-700">
+        <div class="flex-1 h-px bg-slate-800"></div>
+        <span class="text-xs">▼</span>
+        <div class="flex-1 h-px bg-slate-800"></div>
+      </div>
+
+      <!-- Planning agent -->
+      <div class="card p-4 glow" id="orch-planner">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded bg-violet-600 flex items-center justify-center text-white text-xs font-bold">P</div>
+            <div>
+              <div class="text-xs font-semibold text-slate-200">Planning Agent</div>
+              <div class="mono text-xs text-slate-500">claude-opus-4-6 · claude runtime</div>
             </div>
-            <h1 id="detail-title" class="text-lg font-semibold text-slate-100"></h1>
-            <p id="detail-desc" class="text-sm text-slate-400 mt-1"></p>
           </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <button id="trigger-btn" onclick="triggerAgent()" class="px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Trigger Agent</button>
+          <span id="planner-status" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-500">idle</span>
+        </div>
+        <div id="planner-log" class="mono text-xs text-slate-400 space-y-0.5 max-h-32 overflow-y-auto"></div>
+      </div>
+
+      <!-- Fork -->
+      <div class="flex items-center justify-center gap-2 text-slate-700">
+        <div class="flex-1 h-px bg-slate-800"></div>
+        <span class="text-xs text-slate-600">parallel fan-out</span>
+        <div class="flex-1 h-px bg-slate-800"></div>
+      </div>
+
+      <!-- Child agents -->
+      <div class="grid grid-cols-3 gap-3" id="orch-children">
+        <div class="card p-3 agent-node" id="child-AUTH-001">
+          <div class="mono text-xs text-indigo-400 mb-1">AUTH-001</div>
+          <div class="text-xs text-slate-300">Magic link login</div>
+          <div class="mono text-xs text-slate-600 mt-1">claude-sonnet</div>
+          <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="bar-AUTH-001" class="h-full bg-indigo-500 coverage-fill rounded-full" style="width:0%"></div></div>
+          <div id="badge-AUTH-001" class="mt-1 text-xs text-slate-600">waiting</div>
+        </div>
+        <div class="card p-3 agent-node" id="child-AUTH-002">
+          <div class="mono text-xs text-indigo-400 mb-1">AUTH-002</div>
+          <div class="text-xs text-slate-300">OAuth Google</div>
+          <div class="mono text-xs text-slate-600 mt-1">codex</div>
+          <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="bar-AUTH-002" class="h-full bg-indigo-500 coverage-fill rounded-full" style="width:0%"></div></div>
+          <div id="badge-AUTH-002" class="mt-1 text-xs text-slate-600">waiting</div>
+        </div>
+        <div class="card p-3 agent-node" id="child-AUTH-003">
+          <div class="mono text-xs text-indigo-400 mb-1">AUTH-003</div>
+          <div class="text-xs text-slate-300">Session mgmt</div>
+          <div class="mono text-xs text-slate-600 mt-1">claude-sonnet</div>
+          <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden"><div id="bar-AUTH-003" class="h-full bg-indigo-500 coverage-fill rounded-full" style="width:0%"></div></div>
+          <div id="badge-AUTH-003" class="mt-1 text-xs text-slate-600">waiting</div>
+        </div>
+      </div>
+
+      <!-- Join -->
+      <div class="flex items-center justify-center gap-2 text-slate-700">
+        <div class="flex-1 h-px bg-slate-800"></div>
+        <span class="text-xs text-slate-600">results merged</span>
+        <div class="flex-1 h-px bg-slate-800"></div>
+      </div>
+
+      <!-- Coverage -->
+      <div class="card p-4" id="orch-coverage">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">acai.sh coverage</div>
+          <span id="orch-cov-pct" class="text-xs text-slate-500">—</span>
+        </div>
+        <div id="orch-cov-lines" class="mono text-xs text-slate-500 space-y-1">
+          <div>Run the demo to see results.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: aod skill source + API calls -->
+    <div class="w-1/2 overflow-y-auto p-6 space-y-4">
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">How the planning agent fans out</div>
+        <div class="card p-4">
+          <div class="text-xs text-slate-400 mb-3">Every sprite gets the bundled <code class="text-indigo-400">aod</code> skill and <code class="text-indigo-400">AOD_BASE_URL</code>/<code class="text-indigo-400">AOD_TOKEN</code> in env. The planning agent calls back to your AoD instance to spawn children:</div>
+          <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg overflow-x-auto"><!-- The aod skill tells the agent: -->
+# To spawn a sub-agent, POST to $AOD_BASE_URL:
+curl -X POST $AOD_BASE_URL/api/conversations \
+  -H "Authorization: Bearer $AOD_TOKEN" \
+  -d '{
+    "agent_id": "spec-implementer",
+    "prompt": "Implement AUTH-001...\n\n&lt;spec content&gt;"
+  }'
+
+# Then poll or stream until done:
+curl $AOD_BASE_URL/api/conversations/$ID/stream</pre>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Planning agent prompt</div>
+        <div class="card p-4">
+          <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg overflow-x-auto">You are a planning agent. When given a feature description:
+
+1. Decompose it into 2-5 atomic specs, each with a
+   stable ID and clear acceptance criteria.
+2. Write each spec as a feature.yaml and commit it
+   to specs/ in the repo.
+3. Use the aod skill to spawn one implementation
+   agent per spec in parallel.
+4. Wait for all agents to complete.
+5. Run `acai coverage` and report which criteria
+   are satisfied. Re-trigger any agent with gaps.
+6. Open a final PR summarizing the implementation.</pre>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Runtime arbitrage</div>
+        <div class="card p-4">
+          <div class="text-xs text-slate-400 mb-3">Because the spec is the contract — not the prompt — each child agent can use a different runtime. The planning agent chooses based on task type:</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-indigo-400 w-24">AUTH-001</span>
+              <span class="text-xs text-slate-400 flex-1">Complex stateful logic</span>
+              <span class="mono text-xs text-violet-300">claude-sonnet-4-6</span>
+            </div>
+            <div class="flex items-center gap-3 p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-indigo-400 w-24">AUTH-002</span>
+              <span class="text-xs text-slate-400 flex-1">OAuth boilerplate</span>
+              <span class="mono text-xs text-blue-300">codex</span>
+            </div>
+            <div class="flex items-center gap-3 p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-indigo-400 w-24">AUTH-003</span>
+              <span class="text-xs text-slate-400 flex-1">Token / session logic</span>
+              <span class="mono text-xs text-violet-300">claude-sonnet-4-6</span>
+            </div>
           </div>
         </div>
-        <!-- coverage bar -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- VIEW: AGENT WIRING -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="view-wiring" class="hidden flex-1 overflow-y-auto p-6">
+  <div class="max-w-4xl mx-auto">
+    <h2 class="font-semibold text-slate-100 mb-1">Agent Wiring</h2>
+    <p class="text-xs text-slate-400 mb-6">Every AoD conversation is assembled from four composable layers. Click any layer to expand its configuration.</p>
+
+    <div class="space-y-3" id="wiring-layers">
+
+      <!-- Environment -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer" onclick="toggleLayer('env')">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-cyan-900/60 border border-cyan-700/40 flex items-center justify-center">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-200">Environment <span class="mono text-xs text-cyan-400 ml-2">ravi-hq</span></div>
+              <div class="text-xs text-slate-500">Packages · repos · networking · setup script · encrypted secrets</div>
+            </div>
+          </div>
+          <svg id="env-arrow" class="w-4 h-4 text-slate-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="env-body" class="hidden border-t border-slate-800 p-5">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-2">Packages (apt)</div>
+              <div class="flex flex-wrap gap-1">
+                <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-slate-300">elixir</span>
+                <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-slate-300">ripgrep</span>
+                <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-slate-300">jq</span>
+                <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-slate-300">git</span>
+              </div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-2">Networking</div>
+              <div class="text-xs text-slate-300">Limited — allowlist only</div>
+              <div class="mono text-xs text-slate-500">github.com, api.anthropic.com, hex.pm, openai.com</div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-2">Repositories cloned</div>
+              <div class="mono text-xs text-slate-300">github.com/ravi-hq/app</div>
+              <div class="mono text-xs text-slate-500">→ /workspace/app</div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-2">Setup script</div>
+              <pre class="mono text-xs text-slate-300 bg-slate-900 p-2 rounded">cd /workspace/app
+mix deps.get
+mix ecto.setup</pre>
+            </div>
+          </div>
+          <div class="mt-4">
+            <div class="text-xs font-semibold text-slate-500 mb-2">Env vars (baseline secrets)</div>
+            <div class="flex flex-wrap gap-2">
+              <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-emerald-300">DATABASE_URL=••••</span>
+              <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-emerald-300">REDIS_URL=••••</span>
+              <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-emerald-300">SENDGRID_API_KEY=••••</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vault -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer" onclick="toggleLayer('vault')">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-amber-900/60 border border-amber-700/40 flex items-center justify-center">
+              <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-200">Vault <span class="mono text-xs text-amber-400 ml-2">ci-bot</span></div>
+              <div class="text-xs text-slate-500">Per-conversation credential overrides — layered on top of environment secrets</div>
+            </div>
+          </div>
+          <svg id="vault-arrow" class="w-4 h-4 text-slate-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="vault-body" class="hidden border-t border-slate-800 p-5">
+          <p class="text-xs text-slate-400 mb-3">Vaults let you inject different credentials per conversation without modifying the environment. The CI bot uses its own GitHub token so PRs are opened under its identity, not a human's.</p>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-amber-400">GITHUB_TOKEN</span>
+              <span class="mono text-xs text-slate-500">ghp_ci_bot_••••••••</span>
+              <span class="text-xs text-slate-600">overrides env</span>
+            </div>
+            <div class="flex items-center justify-between p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-amber-400">ANTHROPIC_API_KEY</span>
+              <span class="mono text-xs text-slate-500">sk-ant-••••••••</span>
+              <span class="text-xs text-slate-600">overrides env</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-500 mt-3">Vault values win on key collision. Use a personal vault for local dev, a CI vault for automated runs.</p>
+        </div>
+      </div>
+
+      <!-- Agent -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer" onclick="toggleLayer('agent')">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-indigo-900/60 border border-indigo-700/40 flex items-center justify-center">
+              <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-200">Agent <span class="mono text-xs text-indigo-400 ml-2">spec-implementer</span></div>
+              <div class="text-xs text-slate-500">Runtime · model · system prompt · MCP servers · skills</div>
+            </div>
+          </div>
+          <svg id="agent-arrow" class="w-4 h-4 text-slate-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="agent-body" class="hidden border-t border-slate-800 p-5">
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-1">Runtime</div>
+              <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-violet-300">claude</span>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-1">Model</div>
+              <span class="mono text-xs px-2 py-0.5 bg-slate-800 rounded text-violet-300">claude-sonnet-4-6</span>
+            </div>
+          </div>
+          <div class="mb-4">
+            <div class="text-xs font-semibold text-slate-500 mb-2">System prompt</div>
+            <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg">You implement requirements from spec files.
+
+For each acceptance criterion you satisfy:
+- Add a comment with the spec ID near the
+  implementation (e.g. # AUTH-001)
+- Run the test suite and confirm it passes
+
+When done, summarize which file:line satisfies
+each criterion, then open a PR.</pre>
+          </div>
+          <div class="mb-4">
+            <div class="text-xs font-semibold text-slate-500 mb-2">Skills</div>
+            <div class="space-y-2">
+              <div class="p-2 bg-slate-900 rounded flex items-start gap-2">
+                <span class="mono text-xs text-indigo-400 flex-shrink-0 mt-0.5">aod</span>
+                <span class="text-xs text-slate-400">Built-in — gives this agent <code class="text-slate-300">AOD_BASE_URL</code> + <code class="text-slate-300">AOD_TOKEN</code> and teaches it how to spawn sub-conversations</span>
+              </div>
+              <div class="p-2 bg-slate-900 rounded flex items-start gap-2">
+                <span class="mono text-xs text-indigo-400 flex-shrink-0 mt-0.5">acai</span>
+                <span class="text-xs text-slate-400">GitHub source — teaches the agent how to read specs and tag code with requirement IDs using the ACID comment format</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-slate-500 mb-2">MCP servers</div>
+            <div class="p-2 bg-slate-900 rounded">
+              <span class="mono text-xs text-slate-300">github</span>
+              <span class="text-xs text-slate-500 ml-2">— create branches, open PRs, read file contents</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills detail -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer" onclick="toggleLayer('skills')">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-900/60 border border-emerald-700/40 flex items-center justify-center">
+              <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-200">Skills <span class="text-xs text-slate-500 ml-2">— what the agent knows</span></div>
+              <div class="text-xs text-slate-500">Markdown files mounted into the sprite before the first turn</div>
+            </div>
+          </div>
+          <svg id="skills-arrow" class="w-4 h-4 text-slate-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="skills-body" class="hidden border-t border-slate-800 p-5">
+          <p class="text-xs text-slate-400 mb-4">Skills are SKILL.md files written to the sprite before the conversation starts. The agent reads them as part of its system context. Two shapes: <strong class="text-slate-300">inline</strong> (content in the agent definition) or <strong class="text-slate-300">github</strong> (fetched via skills.sh CLI).</p>
+          <div class="mb-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="mono text-xs text-indigo-400 font-medium">aod</span>
+              <span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">built-in, always prepended</span>
+            </div>
+            <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg">---
+name: aod
+---
+You have access to Agent on Demand.
+AOD_BASE_URL and AOD_TOKEN are in your env.
+
+To spawn a sub-agent:
+  curl -X POST $AOD_BASE_URL/api/conversations \
+    -H "Authorization: Bearer $AOD_TOKEN" \
+    -d '{"agent_id":"...","prompt":"..."}'
+
+To stream output:
+  curl $AOD_BASE_URL/api/conversations/$ID/stream
+
+Spawn agents in parallel for independent tasks.</pre>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="mono text-xs text-indigo-400 font-medium">acai</span>
+              <span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">github source</span>
+            </div>
+            <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg">---
+name: acai
+source: acai-sh/skills
+---
+When implementing a spec, tag each satisfied
+criterion with a comment containing the spec ID:
+
+  # AUTH-001  ← add this near the implementation
+
+After implementation, run:
+  acai coverage --spec-dir specs/ --source-dir lib/
+
+Report which file:line satisfies each criterion.</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conversation -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer" onclick="toggleLayer('conv')">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center">
+              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-200">Conversation <span class="mono text-xs text-slate-500 ml-2">conv_a3f8c1</span></div>
+              <div class="text-xs text-slate-500">Sandbox · turns · log events · SSE stream</div>
+            </div>
+          </div>
+          <svg id="conv-arrow" class="w-4 h-4 text-slate-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="conv-body" class="hidden border-t border-slate-800 p-5">
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div class="p-3 bg-slate-900 rounded">
+              <div class="text-xs text-slate-500 mb-1">Sandbox</div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span class="mono text-xs text-emerald-300">ready</span>
+              </div>
+            </div>
+            <div class="p-3 bg-slate-900 rounded">
+              <div class="text-xs text-slate-500 mb-1">Turns</div>
+              <div class="mono text-xs text-slate-200">1 completed</div>
+            </div>
+            <div class="p-3 bg-slate-900 rounded">
+              <div class="text-xs text-slate-500 mb-1">Status</div>
+              <div class="mono text-xs text-slate-200">idle</div>
+            </div>
+          </div>
+          <div class="mb-4">
+            <div class="text-xs font-semibold text-slate-500 mb-2">Resumable — multi-turn</div>
+            <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg"># Follow up on the same conversation:
+curl -X POST $BASE/api/conversations/conv_a3f8c1/prompts \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt":"Criterion 5 is still failing. Fix it."}'
+
+# The agent resumes with full context via --resume.
+# No re-provisioning, no context loss.</pre>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-slate-500 mb-2">SSE stream (Last-Event-ID for replay)</div>
+            <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg">curl -N $BASE/api/conversations/conv_a3f8c1/stream \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Last-Event-ID: 142"   # resume from event 142
+
+data: {"kind":"output","line":"# AUTH-001"}
+data: {"kind":"stage","name":"turn","event":"done"}</pre>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- VIEW: INTEGRATION -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="view-integration" class="hidden flex-1 overflow-y-auto p-6">
+  <div class="max-w-3xl mx-auto">
+    <h2 class="font-semibold text-slate-100 mb-1">Integration Reference</h2>
+    <p class="text-xs text-slate-400 mb-6">Copy-paste examples for wiring specs → agents → coverage into your stack.</p>
+
+    <div class="flex gap-1 mb-5 bg-slate-900 p-1 rounded-lg w-fit">
+      <div class="tab-btn active" id="itab-ci" onclick="switchIntegTab('ci')">GitHub Actions</div>
+      <div class="tab-btn" id="itab-curl" onclick="switchIntegTab('curl')">cURL</div>
+      <div class="tab-btn" id="itab-python" onclick="switchIntegTab('python')">Python</div>
+      <div class="tab-btn" id="itab-manifest" onclick="switchIntegTab('manifest')">aod apply</div>
+    </div>
+
+    <div id="ipane-ci" class="space-y-4">
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">Spec commit → agent trigger</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto"># .github/workflows/implement-specs.yml
+on:
+  push:
+    paths: ['specs/**/*.yaml']
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+
+      - name: Fire agent per changed spec
+        env:
+          AOD_BASE_URL: ${{ secrets.AOD_BASE_URL }}
+          AOD_TOKEN: ${{ secrets.AOD_TOKEN }}
+          AGENT_ID: ${{ secrets.SPEC_IMPLEMENTER_AGENT_ID }}
+        run: |
+          git diff --name-only HEAD~1 HEAD -- 'specs/**/*.yaml' \
+          | while read f; do
+            id=$(grep '^id:' "$f" | awk '{print $2}')
+            body=$(cat "$f")
+            curl -s -X POST $AOD_BASE_URL/api/conversations \
+              -H "Authorization: Bearer $AOD_TOKEN" \
+              -H 'content-type: application/json' \
+              -d "{\"agent_id\":\"$AGENT_ID\",\
+                   \"prompt\":\"Implement $id.\\n\\n$body\"}" \
+            | jq -r '"Started " + .id + " for " + "'$id'"'
+          done</pre>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">Coverage check on PR</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto"># .github/workflows/coverage.yml
+on: [pull_request]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install acai-sh
+      - name: Check spec coverage
+        run: |
+          acai coverage \
+            --spec-dir specs/ \
+            --source-dir lib/ \
+            --fail-under 100   # block merge if any criteria unmet</pre>
+      </div>
+    </div>
+
+    <div id="ipane-curl" class="hidden space-y-4">
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">1. Create environment</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto">curl -X POST $BASE/api/environments \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "ravi-hq",
+    "packages": {"apt": ["jq", "ripgrep"]},
+    "networking_type": "limited",
+    "networking_config": {
+      "allowed_hosts": ["github.com","api.anthropic.com","hex.pm"]
+    },
+    "repositories": [{
+      "url": "https://github.com/ravi-hq/app",
+      "mount_path": "/workspace/app",
+      "secret_key": "GITHUB_TOKEN"
+    }],
+    "setup_script": "cd /workspace/app && mix deps.get && mix ecto.setup"
+  }'</pre>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">2. Create agent with skills</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto">curl -X POST $BASE/api/agents \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "spec-implementer",
+    "model": "anthropic/claude-sonnet-4-6",
+    "runtime": "claude",
+    "environment_id": "<env_id>",
+    "system_prompt": "Implement specs. Tag each criterion with # SPEC-ID.",
+    "skills": [
+      {"source": "acai-sh/skills", "name": "acai"}
+    ],
+    "mcp_servers": {
+      "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_TOKEN"}
+      }
+    }
+  }'</pre>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">3. Start conversation + stream</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto"># Start (returns immediately)
+CONV=$(curl -s -X POST $BASE/api/conversations \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"agent_id":"<id>","prompt":"Implement AUTH-001..."}' \
+  | jq -r '.id')
+
+# Stream output (SSE — reconnect with Last-Event-ID)
+curl -N $BASE/api/conversations/$CONV/stream \
+  -H "Authorization: Bearer $TOKEN"
+
+# Follow-up turn (agent resumes with full context)
+curl -X POST $BASE/api/conversations/$CONV/prompts \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt":"Criterion 5 still fails — fix it."}'</pre>
+      </div>
+    </div>
+
+    <div id="ipane-python" class="hidden space-y-4">
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">Fan-out: run all specs in parallel</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto">import asyncio, httpx, yaml
+from pathlib import Path
+
+AOD_BASE = "http://localhost:4000"
+TOKEN = "your-admin-token"
+AGENT_ID = "spec-implementer-id"
+
+async def run_spec(client, spec_path: Path):
+    spec = yaml.safe_load(spec_path.read_text())
+    resp = await client.post(
+        f"{AOD_BASE}/api/conversations",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={
+            "agent_id": AGENT_ID,
+            "prompt": f"Implement {spec['id']}.\n\n{spec_path.read_text()}",
+        },
+    )
+    conv_id = resp.json()["id"]
+    print(f"Started {conv_id} for {spec['id']}")
+
+    # Stream until done
+    async with client.stream(
+        "GET", f"{AOD_BASE}/api/conversations/{conv_id}/stream",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    ) as stream:
+        async for line in stream.aiter_lines():
+            if line.startswith("data:"):
+                print(f"  [{spec['id']}]", line[5:].strip())
+
+async def main():
+    specs = list(Path("specs").rglob("*.yaml"))
+    async with httpx.AsyncClient(timeout=300) as client:
+        await asyncio.gather(*[run_spec(client, s) for s in specs])
+
+asyncio.run(main())</pre>
+      </div>
+    </div>
+
+    <div id="ipane-manifest" class="hidden space-y-4">
+      <div class="card p-4">
+        <div class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">Declarative setup with aod apply</div>
+        <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto"># aod-spec-agents.yaml
+apiVersion: aod/v1
+kind: Environment
+metadata:
+  name: ravi-hq
+spec:
+  packages:
+    apt: [jq, ripgrep, acai-sh]
+  repositories:
+    - url: https://github.com/ravi-hq/app
+      mount_path: /workspace/app
+      secret_key: GITHUB_TOKEN
+  setup_script: |
+    cd /workspace/app && mix deps.get
+---
+apiVersion: aod/v1
+kind: Agent
+metadata:
+  name: spec-implementer
+spec:
+  runtime: claude
+  model: anthropic/claude-sonnet-4-6
+  environment: ravi-hq
+  system_prompt: |
+    Implement requirements from spec files.
+    Tag each criterion with # SPEC-ID.
+    Open a PR when done.
+  skills:
+    - source: acai-sh/skills
+      name: acai
+  mcp_servers:
+    github:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+---
+apiVersion: aod/v1
+kind: Agent
+metadata:
+  name: planning-agent
+spec:
+  runtime: claude
+  model: anthropic/claude-opus-4-6
+  environment: ravi-hq
+  system_prompt: |
+    Decompose features into specs, then use the
+    aod skill to spawn spec-implementer agents
+    in parallel. Run acai coverage when done.</pre>
         <div class="mt-3">
-          <div class="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Coverage</span>
-            <span id="coverage-label"></span>
-          </div>
-          <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div id="coverage-bar" class="h-full bg-indigo-500 coverage-bar-fill rounded-full" style="width:0%"></div>
-          </div>
+          <pre class="mono text-xs text-slate-300 bg-slate-900 p-3 rounded-lg">aod apply -f aod-spec-agents.yaml</pre>
         </div>
       </div>
-
-      <!-- Tabs -->
-      <div class="flex border-b border-slate-800 px-6 flex-shrink-0">
-        <div class="tab active" id="tab-criteria" onclick="switchTab('criteria')">Acceptance Criteria</div>
-        <div class="tab" id="tab-log" onclick="switchTab('log')">Agent Log</div>
-        <div class="tab" id="tab-refs" onclick="switchTab('refs')">Code References</div>
-      </div>
-
-      <!-- Tab content -->
-      <div class="flex-1 overflow-y-auto">
-        <div id="pane-criteria" class="p-6"></div>
-        <div id="pane-log" class="hidden p-6 mono text-xs"></div>
-        <div id="pane-refs" class="hidden p-6"></div>
-      </div>
-    </main>
+    </div>
   </div>
+</div>
 
-  <!-- Toast -->
-  <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 border border-slate-700 text-slate-200 text-sm px-4 py-3 rounded-lg shadow-xl opacity-0 transition-opacity duration-300 pointer-events-none max-w-xs">
-    <span id="toast-msg"></span>
-  </div>
+<!-- TOAST -->
+<div id="toast" class="fixed bottom-5 right-5 bg-slate-800 border border-slate-700 text-sm px-4 py-3 rounded-xl shadow-2xl opacity-0 transition-opacity duration-300 pointer-events-none max-w-sm z-50">
+  <span id="toast-msg"></span>
+</div>
 
 <script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
 const SPECS = [
-  {
-    id: 'BILLING-001',
-    title: 'Stripe checkout flow',
-    description: 'Users can purchase a subscription via Stripe Checkout. Session is created server-side; webhook confirms payment.',
-    status: 'accepted',
-    criteria: [
-      { text: 'POST /billing/checkout creates a Stripe Checkout Session and returns the URL', status: 'accepted', ref: 'lib/billing/checkout.ex:31' },
-      { text: 'Webhook POST /billing/webhook verifies signature and activates subscription on payment_intent.succeeded', status: 'accepted', ref: 'lib/billing/webhook_handler.ex:18' },
-      { text: 'GET /billing/success renders confirmation page with plan details', status: 'accepted', ref: 'lib/web/controllers/billing_controller.ex:55' },
+  { id:'BILLING-001', title:'Stripe checkout flow', description:'Users purchase a subscription via Stripe Checkout. Session is created server-side; webhook confirms payment.',
+    status:'accepted',
+    criteria:[
+      {text:'POST /billing/checkout creates a Stripe Checkout Session and returns the redirect URL', status:'accepted', ref:'lib/billing/checkout.ex:31'},
+      {text:'Webhook POST /billing/webhook verifies Stripe signature and activates subscription on payment_intent.succeeded', status:'accepted', ref:'lib/billing/webhook_handler.ex:18'},
+      {text:'GET /billing/success renders confirmation page with plan name and renewal date', status:'accepted', ref:'lib/web/controllers/billing_controller.ex:55'},
     ],
-    log: [
-      { type: 'stage', text: '▶ provision started' },
-      { type: 'stage', text: '▶ setup done (4.2s)' },
-      { type: 'stage', text: '▶ turn 1 started' },
-      { type: 'output', text: 'Reading BILLING-001 spec...' },
-      { type: 'output', text: 'Creating lib/billing/checkout.ex' },
-      { type: 'output', text: '# BILLING-001: Stripe session creation' },
-      { type: 'output', text: 'Creating lib/billing/webhook_handler.ex' },
-      { type: 'output', text: '# BILLING-001: webhook signature verification' },
-      { type: 'output', text: 'Adding route: POST /billing/webhook' },
-      { type: 'output', text: 'Running mix test test/billing/ ... 3 passed' },
-      { type: 'stage', text: '▶ turn 1 done (exit 0)' },
-      { type: 'output', text: '' },
-      { type: 'output', text: 'Summary — BILLING-001:' },
-      { type: 'output', text: '  ✓ criterion 1 → lib/billing/checkout.ex:31' },
-      { type: 'output', text: '  ✓ criterion 2 → lib/billing/webhook_handler.ex:18' },
-      { type: 'output', text: '  ✓ criterion 3 → lib/web/controllers/billing_controller.ex:55' },
+    log:[
+      {t:'stage',s:'▶ provision started'},
+      {t:'stage',s:'▶ setup done (4.2s)'},
+      {t:'stage',s:'▶ turn 1 started'},
+      {t:'out',s:'Reading BILLING-001 spec...'},
+      {t:'out',s:'Creating lib/billing/checkout.ex'},
+      {t:'out',s:'# BILLING-001  ← criterion 1'},
+      {t:'out',s:'Creating lib/billing/webhook_handler.ex'},
+      {t:'out',s:'# BILLING-001  ← criterion 2'},
+      {t:'out',s:'mix test test/billing/ ... 3 passed'},
+      {t:'stage',s:'▶ turn 1 done (exit 0)'},
+      {t:'out',s:''},
+      {t:'out',s:'Summary — BILLING-001:'},
+      {t:'out',s:'  ✓ criterion 1 → lib/billing/checkout.ex:31'},
+      {t:'out',s:'  ✓ criterion 2 → lib/billing/webhook_handler.ex:18'},
+      {t:'out',s:'  ✓ criterion 3 → lib/web/controllers/billing_controller.ex:55'},
     ]
   },
-  {
-    id: 'AUTH-001',
-    title: 'Magic link login',
-    description: 'Users log in via a one-time email link. No password required. Token expires after 15 minutes.',
-    status: 'in-review',
-    criteria: [
-      { text: 'POST /auth/magic_link generates a 6-digit token stored in Redis with 15-minute TTL', status: 'implemented', ref: 'lib/auth/magic_link.ex:24' },
-      { text: 'Email is dispatched via the configured mailer with the login link', status: 'implemented', ref: 'lib/mailer/magic_link_email.ex:11' },
-      { text: 'GET /auth/confirm?token=... exchanges the token for a session cookie', status: 'implemented', ref: 'lib/auth/magic_link_controller.ex:12' },
-      { text: 'Token is deleted from Redis immediately after first use', status: 'implemented', ref: 'lib/auth/magic_link.ex:41' },
-      { text: 'Expired or unknown tokens return 401 with a user-readable JSON error', status: 'missing', ref: null },
+  { id:'AUTH-001', title:'Magic link login', description:'Users log in via a one-time email link. No password. Token expires after 15 minutes.',
+    status:'in-review',
+    criteria:[
+      {text:'POST /auth/magic_link generates a 6-digit token stored in Redis with 15-minute TTL', status:'implemented', ref:'lib/auth/magic_link.ex:24'},
+      {text:'Email is dispatched via the configured mailer with the login link', status:'implemented', ref:'lib/mailer/magic_link_email.ex:11'},
+      {text:'GET /auth/confirm?token=... exchanges the token for a session cookie', status:'implemented', ref:'lib/auth/magic_link_controller.ex:12'},
+      {text:'Token is deleted from Redis immediately after first use', status:'implemented', ref:'lib/auth/magic_link.ex:41'},
+      {text:'Expired or unknown tokens return 401 with a user-readable JSON error body', status:'missing', ref:null},
     ],
-    log: [
-      { type: 'stage', text: '▶ provision started' },
-      { type: 'stage', text: '▶ setup done (3.8s)' },
-      { type: 'stage', text: '▶ turn 1 started' },
-      { type: 'output', text: 'Reading AUTH-001 spec...' },
-      { type: 'output', text: 'Creating lib/auth/magic_link.ex' },
-      { type: 'output', text: '# AUTH-001: token generation + Redis storage' },
-      { type: 'output', text: 'Creating lib/mailer/magic_link_email.ex' },
-      { type: 'output', text: '# AUTH-001: email dispatch' },
-      { type: 'output', text: 'Creating lib/auth/magic_link_controller.ex' },
-      { type: 'output', text: '# AUTH-001: token exchange → session cookie' },
-      { type: 'output', text: 'Running mix test test/auth/magic_link_test.exs ... 4 passed, 1 failed' },
-      { type: 'output', text: '  1) expired token returns 401 — got 500' },
-      { type: 'stage', text: '▶ turn 1 done (exit 1)' },
-      { type: 'output', text: '' },
-      { type: 'output', text: 'Summary — AUTH-001:' },
-      { type: 'output', text: '  ✓ criterion 1 → lib/auth/magic_link.ex:24' },
-      { type: 'output', text: '  ✓ criterion 2 → lib/mailer/magic_link_email.ex:11' },
-      { type: 'output', text: '  ✓ criterion 3 → lib/auth/magic_link_controller.ex:12' },
-      { type: 'output', text: '  ✓ criterion 4 → lib/auth/magic_link.ex:41' },
-      { type: 'output', text: '  ✗ criterion 5 → NOT FOUND (expired token error handling missing)' },
+    log:[
+      {t:'stage',s:'▶ provision started'},{t:'stage',s:'▶ setup done (3.8s)'},{t:'stage',s:'▶ turn 1 started'},
+      {t:'out',s:'Reading AUTH-001 spec...'},{t:'out',s:'Creating lib/auth/magic_link.ex'},
+      {t:'out',s:'# AUTH-001  ← token generation + Redis'},{t:'out',s:'Creating lib/mailer/magic_link_email.ex'},
+      {t:'out',s:'# AUTH-001  ← email dispatch'},{t:'out',s:'mix test test/auth/ ... 4 passed, 1 failed'},
+      {t:'out',s:'  1) expired token → got 500, expected 401'},{t:'stage',s:'▶ turn 1 done (exit 1)'},
+      {t:'out',s:''},{t:'out',s:'Summary — AUTH-001:'},
+      {t:'out',s:'  ✓ criterion 1 → lib/auth/magic_link.ex:24'},{t:'out',s:'  ✓ criterion 2 → lib/mailer/magic_link_email.ex:11'},
+      {t:'out',s:'  ✓ criterion 3 → lib/auth/magic_link_controller.ex:12'},{t:'out',s:'  ✓ criterion 4 → lib/auth/magic_link.ex:41'},
+      {t:'out',s:'  ✗ criterion 5 → NOT FOUND (expired token error handling missing)'},
     ]
   },
-  {
-    id: 'API-001',
-    title: 'Rate limiting middleware',
-    description: 'All /api/* routes are rate-limited per IP. Clients that exceed the limit receive 429 with Retry-After.',
-    status: 'running',
-    criteria: [
-      { text: 'Requests to /api/* are counted per IP using ETS with a 60-second sliding window', status: 'implemented', ref: 'lib/plug/rate_limiter.ex:8' },
-      { text: '429 Too Many Requests is returned with Retry-After header when limit exceeded', status: 'implemented', ref: 'lib/plug/rate_limiter.ex:44' },
-      { text: 'Limit is configurable via application env (default: 600 req/min)', status: 'missing', ref: null },
-      { text: 'Authenticated requests use user ID as key instead of IP', status: 'missing', ref: null },
+  { id:'API-001', title:'Rate limiting middleware', description:'All /api/* routes are rate-limited per IP. Clients exceeding the limit receive 429 with Retry-After.',
+    status:'running',
+    criteria:[
+      {text:'Requests to /api/* are counted per IP using ETS with a 60-second sliding window', status:'implemented', ref:'lib/plug/rate_limiter.ex:8'},
+      {text:'429 Too Many Requests returned with Retry-After header when limit exceeded', status:'implemented', ref:'lib/plug/rate_limiter.ex:44'},
+      {text:'Limit configurable via application env (default: 600 req/min)', status:'missing', ref:null},
+      {text:'Authenticated requests use user ID as key instead of IP', status:'missing', ref:null},
     ],
-    log: [
-      { type: 'stage', text: '▶ provision started' },
-      { type: 'stage', text: '▶ setup done (4.1s)' },
-      { type: 'stage', text: '▶ turn 1 started' },
-      { type: 'output', text: 'Reading API-001 spec...' },
-      { type: 'output', text: 'Creating lib/plug/rate_limiter.ex' },
-      { type: 'output', text: '# API-001: ETS sliding window counter' },
-      { type: 'output', text: '# API-001: 429 response + Retry-After header' },
-      { type: 'output', text: 'Running mix test test/plug/rate_limiter_test.exs ...' },
+    log:[
+      {t:'stage',s:'▶ provision started'},{t:'stage',s:'▶ setup done (4.1s)'},{t:'stage',s:'▶ turn 1 started'},
+      {t:'out',s:'Reading API-001 spec...'},{t:'out',s:'Creating lib/plug/rate_limiter.ex'},
+      {t:'out',s:'# API-001  ← ETS sliding window'},{t:'out',s:'# API-001  ← 429 + Retry-After'},
+      {t:'out',s:'mix test test/plug/rate_limiter_test.exs ...'},
     ]
   },
-  {
-    id: 'AUTH-002',
-    title: 'OAuth2 — Google login',
-    description: 'Users can sign in with their Google account. On first login, an account is created automatically.',
-    status: 'draft',
-    criteria: [
-      { text: 'GET /auth/google redirects to Google OAuth2 consent screen with correct scopes', status: 'missing', ref: null },
-      { text: 'GET /auth/google/callback exchanges code for tokens, upserts user, and sets session', status: 'missing', ref: null },
-      { text: 'If Google email is already associated with a password account, accounts are merged', status: 'missing', ref: null },
-    ],
-    log: []
-  },
+  { id:'AUTH-002', title:'OAuth2 — Google login', description:'Users sign in with their Google account. On first login an account is created automatically.',
+    status:'draft', criteria:[
+      {text:'GET /auth/google redirects to Google OAuth2 consent screen with correct scopes', status:'missing', ref:null},
+      {text:'GET /auth/google/callback exchanges code for tokens, upserts user, and sets session', status:'missing', ref:null},
+      {text:'If Google email is already tied to a password account, accounts are merged', status:'missing', ref:null},
+    ], log:[] },
 ];
 
-let activeId = SPECS[1].id;
-let activeTab = 'criteria';
-let isAnimating = false;
-
 const STATUS_META = {
-  accepted:     { label: 'Accepted',       bg: 'bg-emerald-900/60', text: 'text-emerald-300', dot: 'bg-emerald-400' },
-  'in-review':  { label: 'In Review',      bg: 'bg-violet-900/60',  text: 'text-violet-300',  dot: 'bg-violet-400' },
-  running:      { label: 'Agent Running',  bg: 'bg-amber-900/60',   text: 'text-amber-300',   dot: 'bg-amber-400', pulse: true },
-  draft:        { label: 'Draft',          bg: 'bg-slate-800',      text: 'text-slate-400',   dot: 'bg-slate-500' },
+  accepted:   {label:'Accepted',      bg:'bg-emerald-900/50', text:'text-emerald-300', dot:'bg-emerald-400'},
+  'in-review':{label:'In Review',     bg:'bg-violet-900/50',  text:'text-violet-300',  dot:'bg-violet-400'},
+  running:    {label:'Agent Running', bg:'bg-amber-900/50',   text:'text-amber-300',   dot:'bg-amber-400', pulse:true},
+  draft:      {label:'Draft',         bg:'bg-slate-800',      text:'text-slate-400',   dot:'bg-slate-600'},
 };
-
 const CRITERIA_META = {
-  accepted:    { icon: '✓', color: 'text-emerald-400', bg: 'bg-emerald-900/20 border-emerald-800/40' },
-  implemented: { icon: '✓', color: 'text-blue-400',    bg: 'bg-blue-900/20 border-blue-800/40' },
-  missing:     { icon: '✗', color: 'text-red-400',     bg: 'bg-red-900/10 border-red-800/30' },
+  accepted:   {icon:'✓', color:'text-emerald-400', bg:'bg-emerald-900/20 border-emerald-800/40'},
+  implemented:{icon:'✓', color:'text-blue-400',    bg:'bg-blue-900/20 border-blue-800/40'},
+  missing:    {icon:'✗', color:'text-red-400',      bg:'bg-red-900/10 border-red-800/30'},
 };
 
+let activeSpec = 'AUTH-001';
+let activeSpecTab = 'criteria';
+let animating = false;
+
+// ─── SPECS VIEW ──────────────────────────────────────────────────────────────
 function renderSidebar() {
-  const list = document.getElementById('spec-list');
-  list.innerHTML = SPECS.map(s => {
+  document.getElementById('spec-list').innerHTML = SPECS.map(s => {
     const m = STATUS_META[s.status];
-    const done = s.criteria.filter(c => c.status !== 'missing').length;
-    const total = s.criteria.length;
-    const pct = Math.round(done / total * 100);
-    return `
-    <div class="spec-row px-4 py-3 border-b border-slate-800/60 ${s.id === activeId ? 'active' : ''}" onclick="selectSpec('${s.id}')">
+    const done = s.criteria.filter(c=>c.status!=='missing').length;
+    const pct = Math.round(done/s.criteria.length*100);
+    return `<div class="spec-row px-4 py-3 border-b border-slate-800/50 ${s.id===activeSpec?'active':''}" onclick="selectSpec('${s.id}')">
       <div class="flex items-center justify-between mb-1">
         <span class="mono text-xs text-indigo-400 font-medium">${s.id}</span>
-        <span class="status-pill ${m.bg} ${m.text} text-xs px-1.5 py-0.5 rounded">
-          ${m.pulse ? `<span class="pulse-dot running"></span>` : `<span class="inline-block w-1.5 h-1.5 rounded-full ${m.dot}"></span>`}
-          ${m.label}
+        <span class="text-xs px-1.5 py-0.5 rounded ${m.bg} ${m.text} flex items-center gap-1">
+          <span class="inline-block w-1.5 h-1.5 rounded-full ${m.dot} ${m.pulse?'pulse':''}"></span>${m.label}
         </span>
       </div>
-      <div class="text-sm text-slate-300 truncate">${s.title}</div>
-      <div class="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
-        <div class="h-full rounded-full ${ pct===100 ? 'bg-emerald-500' : 'bg-indigo-500'} transition-all" style="width:${pct}%"></div>
+      <div class="text-xs text-slate-300 truncate mb-2">${s.title}</div>
+      <div class="h-1 bg-slate-800 rounded-full overflow-hidden">
+        <div class="h-full rounded-full ${pct===100?'bg-emerald-500':'bg-indigo-500'} coverage-fill" style="width:${pct}%"></div>
       </div>
-      <div class="text-xs text-slate-600 mt-0.5">${done}/${total} criteria</div>
+      <div class="text-xs text-slate-600 mt-0.5">${done}/${s.criteria.length}</div>
     </div>`;
   }).join('');
 }
 
 function renderDetail() {
-  const spec = SPECS.find(s => s.id === activeId);
-  if (!spec) return;
-  const m = STATUS_META[spec.status];
-  const done = spec.criteria.filter(c => c.status !== 'missing').length;
-  const total = spec.criteria.length;
-  const pct = Math.round(done / total * 100);
-
-  document.getElementById('detail-id').textContent = spec.id;
-  document.getElementById('detail-title').textContent = spec.title;
-  document.getElementById('detail-desc').textContent = spec.description;
-  document.getElementById('coverage-label').textContent = `${done}/${total} criteria`;
-  document.getElementById('detail-status-pill').innerHTML =
-    `<span class="status-pill ${m.bg} ${m.text} text-xs px-2 py-0.5 rounded">
-      ${m.pulse ? `<span class="pulse-dot running"></span>` : `<span class="inline-block w-1.5 h-1.5 rounded-full ${m.dot}"></span>`}
-      ${m.label}
-    </span>`;
-
-  setTimeout(() => {
-    document.getElementById('coverage-bar').style.width = pct + '%';
-    document.getElementById('coverage-bar').className =
-      `h-full rounded-full coverage-bar-fill ${ pct===100 ? 'bg-emerald-500' : 'bg-indigo-500'}`;
-  }, 80);
-
-  const triggerBtn = document.getElementById('trigger-btn');
-  if (spec.status === 'running' || spec.status === 'accepted') {
-    triggerBtn.disabled = true;
-    triggerBtn.textContent = spec.status === 'running' ? 'Running…' : 'Accepted';
-  } else {
-    triggerBtn.disabled = false;
-    triggerBtn.textContent = 'Trigger Agent';
-  }
-
-  renderCriteria(spec);
-  renderLog(spec);
-  renderRefs(spec);
+  const s = SPECS.find(x=>x.id===activeSpec); if(!s) return;
+  const m = STATUS_META[s.status];
+  const done = s.criteria.filter(c=>c.status!=='missing').length;
+  const pct = Math.round(done/s.criteria.length*100);
+  document.getElementById('d-id').textContent = s.id;
+  document.getElementById('d-title').textContent = s.title;
+  document.getElementById('d-desc').textContent = s.description;
+  document.getElementById('d-cov-label').textContent = `${done}/${s.criteria.length} criteria`;
+  document.getElementById('d-status').innerHTML =
+    `<span class="text-xs px-2 py-0.5 rounded ${m.bg} ${m.text} flex items-center gap-1 w-fit">
+      <span class="inline-block w-1.5 h-1.5 rounded-full ${m.dot} ${m.pulse?'pulse':''}"></span>${m.label}</span>`;
+  const btn = document.getElementById('trigger-btn');
+  btn.disabled = (s.status==='running'||s.status==='accepted')||animating;
+  btn.textContent = s.status==='running'?'Running…':s.status==='accepted'?'Accepted':'Trigger Agent';
+  setTimeout(()=>{
+    document.getElementById('d-cov-bar').style.width=pct+'%';
+    document.getElementById('d-cov-bar').className=`h-full coverage-fill rounded-full ${pct===100?'bg-emerald-500':'bg-indigo-500'}`;
+  },80);
+  renderCriteria(s); renderLog(s); renderRefs(s); renderYaml(s);
 }
 
-function renderCriteria(spec) {
-  const pane = document.getElementById('pane-criteria');
-  pane.innerHTML = spec.criteria.map((c, i) => {
-    const m = CRITERIA_META[c.status];
-    return `
-    <div class="criteria-item flex items-start gap-3 p-3 rounded-lg border ${m.bg} mb-2">
-      <span class="${m.color} font-bold mt-0.5 flex-shrink-0 mono text-sm">${m.icon}</span>
-      <div class="flex-1 min-w-0">
+function renderCriteria(s) {
+  document.getElementById('spane-criteria').innerHTML = s.criteria.map((c,i)=>{
+    const m=CRITERIA_META[c.status];
+    return `<div class="flex items-start gap-3 p-3 rounded-lg border ${m.bg} mb-2">
+      <span class="${m.color} font-bold mono text-sm flex-shrink-0">${m.icon}</span>
+      <div class="flex-1">
         <div class="text-sm text-slate-200">${c.text}</div>
-        ${c.ref ? `<div class="mono text-xs text-slate-500 mt-1">${c.ref}</div>` : ''}
+        ${c.ref?`<div class="mono text-xs text-slate-500 mt-1">${c.ref}</div>`:''}
       </div>
-      <span class="text-xs text-slate-600 flex-shrink-0">#${i+1}</span>
+      <span class="text-xs text-slate-700 flex-shrink-0">#${i+1}</span>
     </div>`;
   }).join('');
 }
 
-function renderLog(spec) {
-  const pane = document.getElementById('pane-log');
-  if (spec.log.length === 0) {
-    pane.innerHTML = '<div class="text-slate-600 italic">No agent runs yet.</div>';
-    return;
-  }
-  pane.innerHTML = spec.log.map(l => {
-    const color = l.type === 'stage' ? 'text-indigo-400' : 'text-slate-300';
-    return `<div class="log-line visible ${color} leading-relaxed">${escHtml(l.text)}</div>`;
-  }).join('');
+function renderLog(s) {
+  const p=document.getElementById('spane-log');
+  if(!s.log.length){p.innerHTML='<div class="text-slate-600 italic">No agent runs yet.</div>';return;}
+  p.innerHTML=s.log.map(l=>`<div class="log-line visible ${l.t==='stage'?'text-indigo-400':'text-slate-300'} leading-relaxed">${esc(l.s)}</div>`).join('');
 }
 
-function renderRefs(spec) {
-  const pane = document.getElementById('pane-refs');
-  const refs = spec.criteria.filter(c => c.ref);
-  if (refs.length === 0) {
-    pane.innerHTML = '<div class="text-slate-600 italic text-sm">No code references yet — trigger an agent to implement this spec.</div>';
-    return;
-  }
-  pane.innerHTML = `
-    <div class="text-xs text-slate-500 mb-4">These file locations were tagged with <span class="mono text-indigo-400">${spec.id}</span> by the agent.</div>
-    <div class="space-y-2">
-    ${ refs.map((c,i) => `
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-900 border border-slate-800">
-        <span class="mono text-xs text-emerald-400 font-medium flex-shrink-0">${c.ref}</span>
-        <span class="text-slate-500 text-xs truncate">${c.text.slice(0,60)}${c.text.length>60?'…':''}</span>
-      </div>`).join('')}
+function renderRefs(s) {
+  const refs=s.criteria.filter(c=>c.ref);
+  const p=document.getElementById('spane-refs');
+  if(!refs.length){p.innerHTML='<div class="text-slate-600 italic text-sm">No code references yet — trigger an agent to implement this spec.</div>';return;}
+  p.innerHTML=`<div class="text-xs text-slate-500 mb-3">Locations tagged with <span class="mono text-indigo-400">${s.id}</span> by the agent.</div>
+    <div class="space-y-2">${refs.map(c=>`<div class="flex items-center gap-3 p-3 rounded-lg bg-slate-900 border border-slate-800">
+      <span class="mono text-xs text-emerald-400 flex-shrink-0">${c.ref}</span>
+      <span class="text-slate-500 text-xs truncate">${c.text.slice(0,60)}…</span></div>`).join('')}
     </div>
     <div class="mt-4 p-3 rounded-lg bg-slate-900 border border-slate-800">
-      <div class="text-xs text-slate-500 mb-2">Grep for these in your repo:</div>
-      <code class="mono text-xs text-indigo-300">grep -r "${spec.id}" lib/ --include="*.ex" -n</code>
-    </div>`;
+      <div class="text-xs text-slate-500 mb-2">Grep for refs:</div>
+      <code class="mono text-xs text-indigo-300">grep -r "${s.id}" lib/ --include="*.ex" -n</code></div>`;
+}
+
+function renderYaml(s) {
+  const criteria = s.criteria.map(c=>`  - ${c.text}`).join('\n');
+  document.getElementById('spane-yaml').innerHTML=`
+    <div class="text-xs text-slate-500 mb-3">The spec file that triggered this agent. Commit a change to this file and a new agent fires automatically via CI.</div>
+    <pre class="mono text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto">id: ${s.id}
+title: ${s.title}
+description: ${s.description}
+acceptance_criteria:
+${criteria}</pre>`;
 }
 
 function selectSpec(id) {
-  activeId = id;
-  activeTab = 'criteria';
-  renderSidebar();
-  renderDetail();
-  switchTab('criteria');
+  activeSpec=id; activeSpecTab='criteria';
+  renderSidebar(); renderDetail(); switchSpecTab('criteria');
 }
 
-function switchTab(name) {
-  activeTab = name;
-  ['criteria','log','refs'].forEach(t => {
-    document.getElementById('tab-'+t).className = 'tab' + (t===name ? ' active' : '');
-    document.getElementById('pane-'+t).className = (t===name ? 'p-6' : 'hidden p-6') + (t==='log' ? ' mono text-xs' : '');
+function switchSpecTab(name) {
+  activeSpecTab=name;
+  ['criteria','log','refs','yaml'].forEach(t=>{
+    document.getElementById('stab-'+t).className='tab-btn'+(t===name?' active':'');
+    const p=document.getElementById('spane-'+t);
+    p.className=(t==='log'?'mono text-xs leading-relaxed ':'')+' p-5'+(t===name?'':' hidden');
   });
 }
 
 function triggerAgent() {
-  const spec = SPECS.find(s => s.id === activeId);
-  if (!spec || isAnimating) return;
-  isAnimating = true;
-
-  const btn = document.getElementById('trigger-btn');
-  btn.disabled = true;
-  btn.textContent = 'Queuing…';
-
-  spec.status = 'running';
-  renderSidebar();
-  renderDetail();
-
-  switchTab('log');
-
-  const pane = document.getElementById('pane-log');
-  const lines = [
-    { type: 'stage', text: '▶ provision started' },
-    { type: 'output', text: `Cloning repo... done` },
-    { type: 'output', text: `Installing packages... done` },
-    { type: 'stage', text: '▶ provision done (5.1s)' },
-    { type: 'stage', text: `▶ turn 1 started` },
-    { type: 'output', text: `Reading ${spec.id} from specs/${spec.id.toLowerCase().replace('-','/')}.yaml...` },
-    { type: 'output', text: `${spec.criteria.length} acceptance criteria loaded.` },
-    ...spec.criteria.map((c, i) => ({ type: 'output', text: `Implementing criterion ${i+1}: ${c.text.slice(0,50)}...` })),
-    { type: 'output', text: 'Running mix test ...' },
-    { type: 'stage', text: '▶ turn 1 done (exit 0)' },
-    { type: 'output', text: '' },
-    { type: 'output', text: `Summary — ${spec.id}:` },
-    ...spec.criteria.map((c, i) => ({ type: 'output', text: `  ✓ criterion ${i+1} — tagged with ${spec.id}` })),
-    { type: 'output', text: '' },
-    { type: 'output', text: 'Opening PR...' },
-    { type: 'stage', text: `▶ Done. PR created: feat/${spec.id.toLowerCase()}-impl` },
+  const s=SPECS.find(x=>x.id===activeSpec); if(!s||animating) return;
+  animating=true;
+  s.status='running'; renderSidebar(); renderDetail(); switchSpecTab('log');
+  const p=document.getElementById('spane-log'); p.innerHTML='';
+  const lines=[
+    {t:'stage',s:'▶ provision started'},
+    {t:'out',s:`Cloning repo... done`},
+    {t:'out',s:'Installing acai-sh skill... done'},
+    {t:'stage',s:'▶ provision done (5.1s)'},
+    {t:'stage',s:`▶ turn 1 started`},
+    {t:'out',s:`Reading ${s.id} spec (${s.criteria.length} criteria)...`},
+    ...s.criteria.map((_,i)=>({t:'out',s:`Implementing criterion ${i+1}...`})),
+    {t:'out',s:`Running mix test ...`},
+    {t:'out',s:`All tests passing.`},
+    {t:'stage',s:'▶ turn 1 done (exit 0)'},
+    {t:'out',s:''},
+    {t:'out',s:`Summary — ${s.id}:`},
+    ...s.criteria.map((_,i)=>({t:'out',s:`  ✓ criterion ${i+1} — tagged ${s.id}`})),
+    {t:'stage',s:`▶ Opening PR... feat/${s.id.toLowerCase()}-impl`},
   ];
+  s.log=lines; let i=0;
+  function next() {
+    if(i>=lines.length){
+      s.criteria.forEach(c=>{ if(c.status==='missing'){c.status='implemented';c.ref=`lib/${s.id.split('-')[0].toLowerCase()}/${s.id.toLowerCase().replace('-','_')}.ex:${~~(Math.random()*80+10)}`;} });
+      s.status='in-review'; animating=false; renderSidebar(); renderDetail();
+      toast(`Agent finished ${s.id}. PR opened — ready for review.`); return;
+    }
+    const l=lines[i++]; const div=document.createElement('div');
+    div.className='log-line '+(l.t==='stage'?'text-indigo-400':'text-slate-300')+' leading-relaxed';
+    div.textContent=l.s; p.appendChild(div);
+    requestAnimationFrame(()=>div.classList.add('visible'));
+    p.scrollTop=p.scrollHeight;
+    setTimeout(next,l.t==='stage'?200:65);
+  }
+  setTimeout(next,400);
+}
 
-  spec.log = lines;
-  pane.innerHTML = '';
+// ─── ORCHESTRATION VIEW ──────────────────────────────────────────────────────
+let orchRunning=false;
+const ORCH_SPECS = [
+  {id:'AUTH-001',runtime:'claude-sonnet',delay:0,  duration:3200,criteria:3},
+  {id:'AUTH-002',runtime:'codex',        delay:200, duration:4100,criteria:3},
+  {id:'AUTH-003',runtime:'claude-sonnet',delay:100, duration:2800,criteria:4},
+];
 
-  let i = 0;
-  function addLine() {
-    if (i >= lines.length) {
-      // Mark all criteria as implemented
-      spec.criteria.forEach(c => {
-        if (c.status === 'missing') {
-          c.status = 'implemented';
-          c.ref = `lib/${spec.id.split('-')[0].toLowerCase()}/${spec.id.toLowerCase().replace('-','_')}.ex:${Math.floor(Math.random()*80)+10}`;
-        }
-      });
-      spec.status = 'in-review';
-      isAnimating = false;
-      renderSidebar();
-      renderDetail();
-      showToast(`Agent finished ${spec.id}. PR opened — ready for review.`);
+function runOrchestration() {
+  if(orchRunning) return;
+  orchRunning=true;
+  document.getElementById('orch-btn').disabled=true;
+  document.getElementById('orch-btn').textContent='Running…';
+
+  // Reset UI
+  ORCH_SPECS.forEach(s=>{
+    document.getElementById('badge-'+s.id).textContent='waiting';
+    document.getElementById('badge-'+s.id).className='mt-1 text-xs text-slate-600';
+    setBar(s.id,0);
+  });
+  document.getElementById('orch-cov-pct').textContent='—';
+  document.getElementById('orch-cov-lines').innerHTML='<div class="text-slate-600">Running…</div>';
+
+  // Planning agent
+  const plStatus=document.getElementById('planner-status');
+  const plLog=document.getElementById('planner-log');
+  plStatus.className='text-xs px-2 py-0.5 rounded bg-amber-900/50 text-amber-300'; plStatus.textContent='running';
+  plLog.innerHTML='';
+  const planLines=[
+    'Received task: "Build user auth system"',
+    'Decomposing into specs...',
+    'Creating specs/auth/magic_link.yaml (AUTH-001)',
+    'Creating specs/auth/oauth_google.yaml (AUTH-002)',
+    'Creating specs/auth/sessions.yaml (AUTH-003)',
+    'Spawning 3 implementation agents in parallel...',
+  ];
+  let pi=0;
+  function planStep() {
+    if(pi>=planLines.length){
+      plStatus.className='text-xs px-2 py-0.5 rounded bg-indigo-900/50 text-indigo-300'; plStatus.textContent='waiting for children';
+      // start children in parallel
+      ORCH_SPECS.forEach(s=>setTimeout(()=>runChild(s), s.delay));
       return;
     }
-    const l = lines[i++];
-    const div = document.createElement('div');
-    div.className = 'log-line ' + (l.type==='stage' ? 'text-indigo-400' : 'text-slate-300') + ' leading-relaxed';
-    div.textContent = l.text;
-    pane.appendChild(div);
-    requestAnimationFrame(() => div.classList.add('visible'));
-    pane.scrollTop = pane.scrollHeight;
-    setTimeout(addLine, l.type==='stage' ? 180 : 60);
+    const d=document.createElement('div'); d.textContent=planLines[pi++];
+    d.className='text-slate-400 log-line';
+    plLog.appendChild(d); requestAnimationFrame(()=>d.classList.add('visible'));
+    setTimeout(planStep,180);
   }
-  setTimeout(addLine, 400);
+  setTimeout(planStep,400);
 }
 
-function showNewSpecToast() {
-  showToast('In the real integration, this creates a new feature.yaml and commits it — triggering an agent automatically via CI.');
+function runChild(spec) {
+  const badge=document.getElementById('badge-'+spec.id);
+  badge.textContent='running'; badge.className='mt-1 text-xs text-amber-400 flex items-center gap-1';
+  badge.innerHTML='<span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse inline-block"></span> running';
+  animateBar(spec.id, spec.duration);
+  setTimeout(()=>{
+    setBar(spec.id,100);
+    badge.innerHTML='<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span> done';
+    badge.className='mt-1 text-xs text-emerald-400 flex items-center gap-1';
+    checkOrchDone();
+  }, spec.duration);
 }
 
-function showToast(msg) {
-  const el = document.getElementById('toast');
-  document.getElementById('toast-msg').textContent = msg;
-  el.style.opacity = '1';
-  setTimeout(() => el.style.opacity = '0', 4000);
+function animateBar(id, duration) {
+  let start=null;
+  function frame(ts) {
+    if(!start) start=ts;
+    const pct=Math.min(95,(ts-start)/duration*100);
+    setBar(id,pct);
+    if(pct<95) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function setBar(id,pct) {
+  const el=document.getElementById('bar-'+id);
+  if(el) el.style.width=pct+'%';
 }
 
-// Init
+function checkOrchDone() {
+  const done=ORCH_SPECS.every(s=>{
+    const b=document.getElementById('badge-'+s.id);
+    return b && b.textContent.includes('done');
+  });
+  if(!done) return;
+  // Planning agent synthesizes
+  const plStatus=document.getElementById('planner-status');
+  const plLog=document.getElementById('planner-log');
+  plStatus.className='text-xs px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300'; plStatus.textContent='synthesizing';
+  setTimeout(()=>{
+    ['All 3 agents completed.','Running acai coverage...','10/10 criteria satisfied.','Opening final PR...'].forEach((line,i)=>{
+      setTimeout(()=>{
+        const d=document.createElement('div'); d.textContent=line;
+        d.className=(line.includes('10/10')||line.includes('PR'))?'text-emerald-400 log-line':'text-slate-400 log-line';
+        plLog.appendChild(d); requestAnimationFrame(()=>d.classList.add('visible'));
+      },i*220);
+    });
+    setTimeout(()=>{
+      plStatus.className='text-xs px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300'; plStatus.textContent='done';
+      document.getElementById('orch-cov-pct').textContent='100%';
+      document.getElementById('orch-cov-pct').className='text-xs text-emerald-400 font-medium';
+      document.getElementById('orch-cov-lines').innerHTML=[
+        {id:'AUTH-001',label:'Magic link login',n:3},
+        {id:'AUTH-002',label:'OAuth Google',n:3},
+        {id:'AUTH-003',label:'Session management',n:4},
+      ].map(s=>`<div class="text-emerald-400">✓ ${s.id}  ${s.label}  (${s.n}/${s.n} criteria)</div>`).join('');
+      orchRunning=false;
+      document.getElementById('orch-btn').disabled=false;
+      document.getElementById('orch-btn').textContent='Run Again';
+      toast('All specs implemented. 10/10 criteria covered. PR opened.');
+    },4*220+200);
+  },400);
+}
+
+// ─── WIRING VIEW ─────────────────────────────────────────────────────────────
+function toggleLayer(id) {
+  const body=document.getElementById(id+'-body');
+  const arrow=document.getElementById(id+'-arrow');
+  const hidden=body.classList.toggle('hidden');
+  arrow.style.transform=hidden?'':'rotate(180deg)';
+}
+
+// ─── INTEGRATION VIEW ────────────────────────────────────────────────────────
+function switchIntegTab(name) {
+  ['ci','curl','python','manifest'].forEach(t=>{
+    document.getElementById('itab-'+t).className='tab-btn'+(t===name?' active':'');
+    document.getElementById('ipane-'+t).className=(t===name?'space-y-4':'hidden space-y-4');
+  });
+}
+
+// ─── GLOBAL NAV ──────────────────────────────────────────────────────────────
+function showView(name) {
+  ['specs','orchestration','wiring','integration'].forEach(v=>{
+    const el=document.getElementById('view-'+v);
+    el.className=(v===name?'flex':'hidden')+' flex-1'+(v==='specs'?' min-h-0':'')+(v==='wiring'||v==='integration'?' overflow-y-auto':'');
+    const btn=document.querySelector(`[onclick="showView('${v}')"]`);
+    if(btn) btn.className='nav-btn'+(v===name?' active':'');
+  });
+  if(name==='wiring') document.getElementById('view-wiring').className='flex-1 overflow-y-auto p-6';
+  if(name==='integration') document.getElementById('view-integration').className='flex-1 overflow-y-auto p-6';
+  if(name==='orchestration') document.getElementById('view-orchestration').className='flex-1 flex flex-col overflow-hidden';
+}
+
+// ─── TOAST ───────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const el=document.getElementById('toast');
+  document.getElementById('toast-msg').textContent=msg;
+  el.style.opacity='1'; setTimeout(()=>el.style.opacity='0',4500);
+}
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
 renderSidebar();
 renderDetail();
 </script>
